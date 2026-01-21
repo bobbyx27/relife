@@ -1,0 +1,645 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>For developpers &#8212; ReLife documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/css/custom.css?v=a8af75d9" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=f281be69"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'developper/index';</script>
+    <script src="../_static/custom-icon.js?v=74687d30"></script>
+    <link rel="icon" href="../_static/relife_favicon.png"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="unweighted_laguerre_quadrature" href="../api/routines/relife.utils.quadrature.unweighted_laguerre_quadrature.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2.2.1" />
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+    
+    
+      
+    
+    
+    <img src="../_static/small_relife.gif" class="logo__image only-light" alt="ReLife documentation - Home"/>
+    <img src="../_static/small_relife.gif" class="logo__image only-dark pst-js-only" alt="ReLife documentation - Home"/>
+  
+  
+</a></div>
+    
+      <div class="navbar-item"><!-- This will display the version of the docs -->
+2.2.1</div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../installation.html">
+    Installation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../basic/index.html">
+    Basics
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../user/index.html">
+    User guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api/index.html">
+    API
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#">
+    For developpers
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/rte-france/relife/tree/refactoring" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-square-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/relife/" title="PyPI" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-custom fa-pypi fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPI</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../installation.html">
+    Installation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../basic/index.html">
+    Basics
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../user/index.html">
+    User guide
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../api/index.html">
+    API
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="#">
+    For developpers
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/rte-france/relife/tree/refactoring" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-square-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://pypi.org/project/relife/" title="PyPI" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-custom fa-pypi fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">PyPI</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">For developpers</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="for-developpers">
+<h1>For developpers<a class="headerlink" href="#for-developpers" title="Link to this heading">#</a></h1>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The content of this section is under continuous improvement as the project gathers more contributors. It is highly inspired by <a class="reference external" href="https://scikit-learn.org/dev/developers/contributing.html#ways-to-contribute">Scikit-Learn</a> and <a class="reference external" href="https://scipy.github.io/devdocs/dev/index.html">Scipy</a> contributing documentation.
+We highly encourage new comers to read these documentations if ours do not answer their questions.</p>
+</div>
+<section id="local-repository-set-up">
+<h2>Local repository set up<a class="headerlink" href="#local-repository-set-up" title="Link to this heading">#</a></h2>
+<p>Clone ReLife repository.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ git clone git@github.com:YourLogin/rte-france/relife.git
+$ cd relife
+</pre></div>
+</div>
+<p>We highly encourage you to use a python virtual environment. In your environment, intall ReLife in editable mode from the source with the developpers dependencies.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ pip install -e &quot;.[dev]&quot;
+</pre></div>
+</div>
+<p>Add the <code class="docutils literal notranslate"><span class="pre">upstream</span></code> remote to synchronize your local repo to the ReLife repo.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ git remote add upstream git@github.com:rte-france/relife.git
+</pre></div>
+</div>
+</section>
+<section id="development-workflow">
+<h2>Development workflow<a class="headerlink" href="#development-workflow" title="Link to this heading">#</a></h2>
+<p>The development is done a specific branch called <code class="docutils literal notranslate"><span class="pre">develop/&lt;relife-version&gt;</span></code>. From this development branch, open a new branch to develop your feature :</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ git checkout develop/&lt;relife-version&gt;
+$ git checkout -b my-new-feature
+</pre></div>
+</div>
+<p>Modify, stag and commit changes. Where you’re done, push the changes to your forked repo</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ git push origin my-new-feature
+</pre></div>
+</div>
+<p>To be sure that you didn’t miss any updates on <cite>develop/&lt;relife-version&gt;</cite>, regularly <code class="docutils literal notranslate"><span class="pre">merge</span></code> the <code class="docutils literal notranslate"><span class="pre">upstream</span></code>.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ git checkout develop/&lt;relife-version&gt;
+$ git fetch upstream
+$ git merge upstream/develop/&lt;relife-version&gt;
+$ git checkout my-new-feature
+$ git merge develop/&lt;relife-version&gt;
+</pre></div>
+</div>
+<p>Please follow and use these standard acronyms to start your commit messages :</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">BUG</span><span class="p">:</span> <span class="n">bug</span> <span class="n">fix</span>
+<span class="n">DEP</span><span class="p">:</span> <span class="n">deprecate</span> <span class="n">something</span><span class="p">,</span> <span class="ow">or</span> <span class="n">remove</span> <span class="n">a</span> <span class="n">deprecated</span> <span class="nb">object</span>
+<span class="n">DEV</span><span class="p">:</span> <span class="n">development</span> <span class="n">tool</span> <span class="ow">or</span> <span class="n">utility</span>
+<span class="n">DOC</span><span class="p">:</span> <span class="n">documentation</span>
+<span class="n">ENH</span><span class="p">:</span> <span class="n">enhancement</span>
+<span class="n">MAINT</span><span class="p">:</span> <span class="n">maintenance</span> <span class="n">commit</span> <span class="p">(</span><span class="n">refactoring</span><span class="p">,</span> <span class="n">typos</span><span class="p">,</span> <span class="n">etc</span><span class="o">.</span><span class="p">)</span>
+<span class="n">REV</span><span class="p">:</span> <span class="n">revert</span> <span class="n">an</span> <span class="n">earlier</span> <span class="n">commit</span>
+<span class="n">STY</span><span class="p">:</span> <span class="n">style</span> <span class="n">fix</span> <span class="p">(</span><span class="n">PEP8</span><span class="p">,</span> <span class="n">reformat</span><span class="p">,</span> <span class="n">etc</span><span class="o">.</span><span class="p">)</span>
+<span class="n">TYP</span> <span class="p">:</span> <span class="n">typing</span>
+<span class="n">TEST</span><span class="p">:</span> <span class="n">addition</span> <span class="ow">or</span> <span class="n">modification</span> <span class="n">of</span> <span class="n">tests</span>
+<span class="n">REL</span><span class="p">:</span> <span class="n">related</span> <span class="n">to</span> <span class="n">releasing</span> <span class="n">ReLife</span>
+</pre></div>
+</div>
+</section>
+<section id="opening-a-pull-request">
+<h2>Opening a pull request<a class="headerlink" href="#opening-a-pull-request" title="Link to this heading">#</a></h2>
+<p>If you want to submit your work, open a pull request to merge your <code class="docutils literal notranslate"><span class="pre">origin/my-new-feature</span></code> branch to <code class="docutils literal notranslate"><span class="pre">upstream/develop/&lt;relife-version&gt;</span></code>.
+Before a PR can be merged, it needs to be approved by 1 core developer.
+An incomplete contribution – where you expect to do more work before receiving
+a full review – should be marked as a <a class="reference external" href="https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/changing-the-stage-of-a-pull-request">draft pull request</a>
+and changed to “ready for review” when it matures.</p>
+<p>In order to ease the reviewing process, we recommend that your contribution
+complies with the following rules before marking a PR as “ready for review”. The
+<strong>bolded</strong> ones are especially important:</p>
+<p>1. <strong>Give your pull request a helpful title</strong> that summarizes what your
+contribution does. This title will often become the commit message once
+merged so it should summarize your contribution for posterity. In some
+cases “Fix &lt;ISSUE TITLE&gt;” is enough. “Fix #&lt;ISSUE NUMBER&gt;” is never a
+good title.</p>
+<p>2. <strong>Do not include unecessary/unjustified commits</strong> that don’t have direct relations
+with the issue. Do not include unecessary lines rewrittings or modifications of code style
+unless it is clearly motivated. Also, remove personal comments in your code.</p>
+<p>3. <strong>Make sure to address the whole issue</strong>. Don’t propose code that resolves the issue partly. If case
+you have any doubt, discuss it directly in the corresponding issue post.</p>
+<p>4. <strong>Make sure your code passes the tests</strong>. The whole test suite can be run
+with <code class="docutils literal notranslate"><span class="pre">pytest</span></code>, but it is usually not recommended since it takes a long
+time. It is often enough to only run the test related to your changes:
+for example, if you changed something in <code class="docutils literal notranslate"><span class="pre">relife/lifetime_model/conditional_model.py</span></code>, running the following commands will usually be enough:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">pytest</span> <span class="pre">relife/lifetime_model/tests/test_conditional_model.py</span></code> to run the tests specific to the file</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">pytest</span> <span class="pre">relife/lifetime_model</span></code> to test the whole <code class="docutils literal notranslate"><span class="pre">relife.lifetime_model</span></code> module</p></li>
+</ul>
+</div></blockquote>
+<p>5. <strong>Make sure your code is properly commented and documented</strong>, and <strong>make
+sure the documentation renders properly</strong>. To build the documentation, please
+refer to our Documentation style guidelines. Run Sphinx locally before.</p>
+<p>6. Typing your code is not necessary but make sure it is clear enough. The typing is handled by
+the core team of ReLife. More specifically, it is a work in progress that will be done through
+stubfiles gradually.</p>
+</section>
+<section id="about-conception">
+<h2>About conception<a class="headerlink" href="#about-conception" title="Link to this heading">#</a></h2>
+<p>If you want to adress conception problem, you’re welcome. <strong>But these issues must be carefully motivated and well justified</strong>. More precisely, we
+won’t accept any modifications that would be too subjective, e.g. <em>because you think it is more readable</em>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>We are aware that overall ReLife code base <em>design</em> can be improved. Especially, we are currently having a special care on typing and are <em>stubifying</em> the code base.
+This work is done in addition to feature enhancements and progress at its own pace. It will be tested against mypy and it complements development principles that we study.
+At the end, we expect this static type checking will get the overall code base quality in the right direction.</p>
+</div>
+</section>
+<section id="about-the-documentation">
+<h2>About the documentation<a class="headerlink" href="#about-the-documentation" title="Link to this heading">#</a></h2>
+<p>To build the documentation locally run the following commands :</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ cd doc
+$ make html
+</pre></div>
+</div>
+<p>To run a local documentation server and consult your documentation version :</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>$ cd doc
+$ python -m http.server -d build/html/
+</pre></div>
+</div>
+<p>Then go to <a class="reference external" href="http://localhost:8000">http://localhost:8000</a></p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Using Sphinx for the first time is frustrating. It is easy to get tons of errors as they are cumulative. Read the Sphinx
+documentation and <strong>be carefull</strong> about unwanted blank lines or missing spaces in reST directives.</p>
+</div>
+<p>The documentation is built with <a class="reference external" href="https://pydata-sphinx-theme.readthedocs.io/en/stable/">PyData Sphinx Theme</a> and uses the
+NumPy documentation style. Here are important points to have in mind if you want to <strong>contribute to the documentation</strong> :</p>
+<ul class="simple">
+<li><p>Read the <a class="reference external" href="https://numpydoc.readthedocs.io/en/latest/format.html">NumPy documentation style guide</a></p></li>
+<li><p>Classes documentation .rst files are generated using <a class="reference external" href="https://jinja.palletsprojects.com/en/stable/">Jinja2</a> template engine. The template is written in <code class="docutils literal notranslate"><span class="pre">class_template.rst</span></code> of the <code class="docutils literal notranslate"><span class="pre">doc/source/_templates</span></code>. A guide to Jinja2 templating is given in <a class="reference external" href="https://www.sphinx-doc.org/en/master/usage/extensions/autosummary.html">Sphinx autosummary documentation</a>. Basically, one can catch usefull variables like <code class="docutils literal notranslate"><span class="pre">methods</span></code> and create nice autosummary tables inside an <code class="docutils literal notranslate"><span class="pre">autoclass</span></code>. We chose this style because it creates very clean and comprehension interface documentation of the class.</p></li>
+<li><p>Take a special care to attributes class documentation. Sphinx does not handle attribute instances easily, especially when they are <strong>inherited</strong>. One must reference them manually in the object class under the <code class="docutils literal notranslate"><span class="pre">Attributes</span></code> field of the docstring.  As it is mentionned in <a class="reference external" href="https://numpydoc.readthedocs.io/en/latest/format.html">NumPy documentation style guide</a>, property methods (getter and/or setter) can be listed there. Their attached docstring will be loaded automatically. One more thing, some IDE (like PyCharm) may raise warnings about unreferenced variables. It is a bug… ignore or disable it at the statement level.</p></li>
+</ul>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#local-repository-set-up">Local repository set up</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#development-workflow">Development workflow</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#opening-a-pull-request">Opening a pull request</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#about-conception">About conception</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#about-the-documentation">About the documentation</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="../_sources/developper/index.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2007 - 2026, RTE-SAGA (Apache 2.0 License).
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
