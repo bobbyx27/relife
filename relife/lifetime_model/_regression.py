@@ -17,7 +17,7 @@ from numpy.typing import NDArray
 from scipy.optimize import Bounds
 from typing_extensions import overload, override
 
-from relife.base import FittingResults, ParametricModel
+from relife.base import MaximumLikelihoodFittingResults, ParametricModel
 from relife.typing import (
     AnyFloat,
     NumpyBool,
@@ -209,7 +209,7 @@ class ParametricLifetimeRegression(FittableParametricLifetimeModel[AnyFloat], AB
 
     baseline: LifetimeDistribution
     covar_effect: LinearCovarEffect
-    fitting_results: FittingResults | None
+    fitting_results: MaximumLikelihoodFittingResults | None
 
     def __init__(
         self,

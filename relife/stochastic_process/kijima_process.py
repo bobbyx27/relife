@@ -6,7 +6,7 @@ from typing import Any, Generic, Self, TypeVarTuple
 
 import numpy as np
 
-from relife.base import FrozenParametricModel, ParametricModel, FittingResults
+from relife.base import FrozenParametricModel, ParametricModel, MaximumLikelihoodFittingResults
 from relife.lifetime_model._base import FittableParametricLifetimeModel
 from relife.stochastic_process._sample import StochasticSampleMapping
 
@@ -21,7 +21,7 @@ class Kijima1Process(ParametricModel, Generic[*Ts]):
     """
 
     lifetime_model: FittableParametricLifetimeModel[*Ts]
-    fitting_results: FittingResults | None
+    fitting_results: MaximumLikelihoodFittingResults | None
 
     def __init__(
         self,
@@ -147,7 +147,7 @@ class Kijima2Process(ParametricModel, Generic[*Ts]):
     """
 
     lifetime_model: FittableParametricLifetimeModel[*Ts]
-    fitting_results: FittingResults | None
+    fitting_results: MaximumLikelihoodFittingResults | None
 
     def __init__(
         self,

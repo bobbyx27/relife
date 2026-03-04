@@ -4,13 +4,13 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy._typing import NDArray
 from optype.numpy import Array1D, ToFloat, ToFloat2D
-from scipy.optimize import Bounds
+from scipy.optimize import Bounds, minimize
 from scipy.stats import norm
 from typing_extensions import Literal, Unpack, final, overload, override, Callable
 
-from relife.base import FittingResults, MaximumLikehoodOptimizer
+from relife.base import MaximumLikelihoodFittingResults, MaximumLikehoodOptimizer
 from relife.lifetime_model._regression import LinearCovarEffect
-from relife.typing import MaximumLikelihoodOptimizerOptions
+from relife.typing import MaximumLikelihoodOptimizerOptions, ScipyMinimizeOptions
 from relife.utils import reshape_1d_arg
 
 
@@ -231,7 +231,7 @@ class SemiParametricProportionalHazard:
     Class for Cox, semi-parametric, Proportional Hazards, model
     """
 
-    fitting_results: FittingResults | None
+    fitting_results: MaximumLikelihoodFittingResults | None
     covar_effect: LinearCovarEffect | None
     _training_data: CoxData | None
     _sf: NDArray[np.void] | None
@@ -730,8 +730,13 @@ class SemiParamAFTData:
 
 @dataclass
 class SemiParamAFTFittingResults:
-    pass
-    # TODO
+    nb_obversations: int  #: Number of observations (samples)
+    optimal_params: NDArray[np.float64] = field(
+        repr=False
+    )  #: Optimal parameters values
+    log_rank_stat: float = field(
+        repr=False
+    )  #: Log rank statistic value at optimal parameters values
 
 
 class SemiParametricAcceleratedFailureTime:
@@ -814,6 +819,46 @@ class SemiParametricAcceleratedFailureTime:
                 )
 
         return np.sqrt(np.sum(S**2))
+
+    def fit(
+            self,
+            time: NDArray[np.float64],
+            covar: NDArray[np.float64],
+            event: NDArray[np.bool_] | None = None,
+            entry: NDArray[np.float64] | None = None,
+            **optimizer_options: Unpack[ScipyMinimizeOptions],
+    ) -> SemiParamAFTFittingResults:
+        # Init covar_effect
+        self.covar_effect = LinearCovarEffect(
+            (None,) * np.atleast_2d(np.asarray(covar, dtype=np.float64)).shape[-1]
+        )
+
+        # Build training_data
+        self._training_data = SemiParamAFTData(
+            time=time, covar=covar, event=event, entry=entry
+        )
+
+        # Set optimizer and minimize
+        x0 = optimizer_options.pop("x0", np.zeros(covar.shape[1], dtype=np.float64))
+        method = optimizer_options.pop("method", "Nelder-Mead")
+        bounds = optimizer_options.pop("bounds", None)
+
+        optimizer = minimize(
+            self.log_rank_stat,
+            x0=x0,
+            method=method,
+            bounds=bounds,
+        )
+
+        # Set output
+        optimal_params = np.copy(optimizer.x)
+        self.covar_effect.params = optimal_params
+
+        return SemiParamAFTFittingResults(
+            nb_obversations=self._training_data["nb_observations"],
+            optimal_params=optimal_params,
+            log_rank_stat=optimizer.fun
+        )
 
 
 

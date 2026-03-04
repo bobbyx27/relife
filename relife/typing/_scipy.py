@@ -44,10 +44,12 @@ MethodMinimize: TypeAlias = Literal[
 ]
 
 
-class MaximumLikelihoodOptimizerOptions(TypedDict):
+class ScipyMinimizeOptions(TypedDict):
     x0: NotRequired[ToFloat | ToFloat1D]
     method: NotRequired[MethodMinimize]
     bounds: NotRequired[Bounds | None]
+
+class MaximumLikelihoodOptimizerOptions(ScipyMinimizeOptions):
     jac: NotRequired[Callable[[Array1D[np.float64]], ToFloat1D] | None]
     hess: NotRequired[Callable[[Array1D[np.float64]], ToFloat2D] | None]
     approx_hessian_method: NotRequired[str | None]

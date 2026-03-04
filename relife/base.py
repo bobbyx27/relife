@@ -276,8 +276,8 @@ def is_frozen(
 
 
 @dataclass
-class FittingResults:
-    """Fitting results of the parametric_model core."""
+class MaximumLikelihoodFittingResults:
+    """Fitting results of the (partial) maximum likelihood"""
 
     nb_obversations: int  #: Number of observations (samples)
     optimal_params: NDArray[np.float64] = field(
@@ -421,7 +421,7 @@ class MaximumLikehoodOptimizer(Generic[M, D], ABC):
 
     def maximum_likelihood_estimation(
         self, **optimizer_options: Unpack[MaximumLikelihoodOptimizerOptions]
-    ) -> FittingResults:
+    ) -> MaximumLikelihoodFittingResults:
         """
         Search parameters values that maximize the likelihood given data.
 
@@ -433,7 +433,7 @@ class MaximumLikehoodOptimizer(Generic[M, D], ABC):
 
         Returns
         -------
-        out : FittingResults
+        out : MaximumLikelihoodFittingResults
             An object that encapsulates optimal parameters and fitting
             information (AIC, variance, etc.).
         """
@@ -462,7 +462,7 @@ class MaximumLikehoodOptimizer(Generic[M, D], ABC):
         else:
             covariance_matrix = None
 
-        return FittingResults(
+        return MaximumLikelihoodFittingResults(
             self.nb_observations,
             optimal_params,
             optimizer.fun,

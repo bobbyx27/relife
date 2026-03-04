@@ -8,7 +8,7 @@ from typing import Any, Generic, Self, Sequence, TypeVarTuple
 import numpy as np
 from numpy.typing import NDArray
 
-from relife.base import FittingResults, FrozenParametricModel, ParametricModel
+from relife.base import MaximumLikelihoodFittingResults, FrozenParametricModel, ParametricModel
 from relife.data import NHPPData
 from relife.lifetime_model._base import (
     LifetimeLikelihood,
@@ -28,7 +28,7 @@ class NonHomogeneousPoissonProcess(ParametricModel, Generic[*Ts]):
     """
 
     lifetime_model: FittableParametricLifetimeModel[*Ts]
-    fitting_results: FittingResults | None
+    fitting_results: MaximumLikelihoodFittingResults | None
 
     def __init__(self, lifetime_model: FittableParametricLifetimeModel[*Ts]):
         super().__init__()

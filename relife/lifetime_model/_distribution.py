@@ -22,7 +22,7 @@ from scipy.optimize import Bounds, newton
 from scipy.special import digamma, exp1, gamma, gammaincc, gammainccinv
 from typing_extensions import override
 
-from relife.base import FittingResults
+from relife.base import MaximumLikelihoodFittingResults
 from relife.typing import AnyFloat, NumpyBool, NumpyFloat, MaximumLikelihoodOptimizerOptions, Seed
 from relife.utils.quadrature import laguerre_quadrature, legendre_quadrature
 
@@ -50,7 +50,7 @@ class LifetimeDistribution(FittableParametricLifetimeModel[()], ABC):
     Base class for distribution model.
     """
 
-    fitting_results: FittingResults | None
+    fitting_results: MaximumLikelihoodFittingResults | None
 
     @override
     @document_args(base_cls=FittableParametricLifetimeModel, args_docstring=[])

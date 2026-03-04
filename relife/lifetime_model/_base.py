@@ -29,7 +29,7 @@ from scipy.optimize import newton
 from typing_extensions import override
 
 from relife.base import (
-    FittingResults,
+    MaximumLikelihoodFittingResults,
     FrozenParametricModel,
     MaximumLikehoodOptimizer,
     ParametricModel,
@@ -781,7 +781,7 @@ def document_args(
 
 
 class FittableParametricLifetimeModel(ParametricLifetimeModel[*Ts], ABC):
-    fitting_results: FittingResults | None
+    fitting_results: MaximumLikelihoodFittingResults | None
     approx_hessian_method: Literal["2point", "cs"] = "cs"
 
     def __init__(self, **kwparams: float | None):
@@ -1038,7 +1038,7 @@ class LifetimeLikelihood(MaximumLikehoodOptimizer[FittableParametricLifetimeMode
     @override
     def maximum_likelihood_estimation(
         self, **optimizer_options: Unpack[MaximumLikelihoodOptimizerOptions]
-    ) -> FittingResults:
+    ) -> MaximumLikelihoodFittingResults:
         if "jac" not in optimizer_options:
             optimizer_options["jac"] = self.jac_negative_log
         return super().maximum_likelihood_estimation(**optimizer_options)
