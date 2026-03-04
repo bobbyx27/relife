@@ -121,7 +121,7 @@ class LinearCovarEffect(ParametricModel):
         """
         return self.nb_params
 
-    def g(self, covar: AnyFloat) -> NumpyFloat:
+    def g(self, covar: AnyFloat, log_scale: bool = False) -> NumpyFloat:
         """
         Returns the covariates effect.
 
@@ -129,6 +129,8 @@ class LinearCovarEffect(ParametricModel):
         ----------
         covar : float or np.ndarray
             The covariate values
+        log_scale: bool
+            Should the covariate effect be evaluated in log scale ?
 
         Returns
         -------
@@ -154,7 +156,10 @@ class LinearCovarEffect(ParametricModel):
                 {arr_covar.shape}
                 """
             )
-        g = np.exp(np.sum(self.params * arr_covar, axis=-1, keepdims=True))  # (m, 1)
+        if log_scale:
+            g = np.sum(self.params * arr_covar, axis=-1, keepdims=True)  # (m, 1)
+        else:
+            g = np.exp(np.sum(self.params * arr_covar, axis=-1, keepdims=True))  # (m, 1)
         if arr_covar.ndim <= 1:
             return np.float64(g.item())
         return g

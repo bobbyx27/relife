@@ -6,7 +6,7 @@ from numpy._typing import NDArray
 from optype.numpy import Array1D, ToFloat, ToFloat2D
 from scipy.optimize import Bounds
 from scipy.stats import norm
-from typing_extensions import Literal, Unpack, final, overload, override
+from typing_extensions import Literal, Unpack, final, overload, override, Callable
 
 from relife.base import FittingResults, MaximumLikehoodOptimizer
 from relife.lifetime_model._regression import LinearCovarEffect
@@ -691,3 +691,131 @@ class EfronPartialLifetimeLikelihood(
         hessian_part_2 = hessian_part_2.sum(axis=1)
 
         return hessian_part_1.sum(axis=0) - hessian_part_2.sum(axis=0)
+
+
+@dataclass
+class SemiParamAFTData:
+    time: NDArray[np.float64]
+    covar: NDArray[np.float64]
+    event: NDArray[np.bool_] | None = None
+    entry: NDArray[np.float64] | None = None
+    nb_observations: int = field(init=False, repr=False)
+
+    def __post_init__(self):
+        self.time = reshape_1d_arg(self.time)
+        self.event = (
+            reshape_1d_arg(self.event)
+            if self.event is not None
+            else np.ones_like(self.time, dtype=np.bool_)
+        )
+        self.entry = (
+            reshape_1d_arg(self.entry)
+            if self.entry is not None
+            else np.zeros_like(self.time, dtype=np.float64)
+        )
+        sizes = [len(x) for x in (self.time, self.event, self.entry, self.covar)]
+
+        if len(set(sizes)) != 1:
+            raise ValueError(
+                f""""
+                All lifetime data must have the same number of values. Fields
+                length are different. Got {tuple(sizes)}.
+                """
+            )
+
+        self.log_time = np.log(self.time)
+        self.log_entry = np.log(self.entry)
+        self.nb_observations = self.time.size
+
+
+@dataclass
+class SemiParamAFTFittingResults:
+    pass
+    # TODO
+
+
+class SemiParametricAcceleratedFailureTime:
+    """
+    Class for semi-parametric, accelerated failure time, model
+
+    Implementation comes from:
+    "Semiparametric inference for an accelerated failure time model with dependent truncation";
+    Emura & Wang; Ann. Inst. Stat. Math. 2016
+
+    Implementation assumes independence between asset lifetime and both truncation and censoring times
+    """
+
+    fitting_results: SemiParamAFTFittingResults | None
+    covar_effect: LinearCovarEffect | None
+    _training_data: SemiParamAFTData | None
+    _sf: NDArray[np.void] | None
+
+    def __init__(self):
+        self._sf = None
+        self._training_data = None
+        self.fitting_results = None
+        self.covar_effect = None
+
+    @staticmethod
+    def update_params(fun: Callable) -> Callable:
+        def wrapper(self, params: NDArray[np.float64], *args, **kwargs):
+            self.covar_effect.params = params
+            return fun(self, params, *args, **kwargs)
+        return wrapper
+
+    @property
+    def params(self):
+        if self.covar_effect is None:
+            return None
+        return self.covar_effect.params
+
+    @property
+    def nb_params(self):
+        if self.covar_effect is None:
+            return None
+        return self.covar_effect.nb_params
+
+    def _log_time_residuals(self) -> NDArray[np.float64]:
+        if self._training_data is None:
+            raise ValueError("You need data to compute log_residuals")
+        return self._training_data.log_time - self.covar_effect.g(self._training_data.covar, log_scale=True)
+
+    def _log_entry_residuals(self) -> NDArray[np.float64]:
+        if self._training_data is None:
+            raise ValueError("You need data to compute log_residuals")
+        return self._training_data.log_entry - self.covar_effect.g(self._training_data.covar, log_scale=True)
+
+    def _Oij(self, i: int, j: int, eps_time: NDArray[np.float64]) -> np.int64:
+        data = self._training_data
+        return (
+                data.event[i] * data.event[j]
+                + data.event[i] * (1 - data.event[j]) * (eps_time[i] < eps_time[j])
+                + (1 - data.event[i]) * data.event[j] * (eps_time[i] > eps_time[j])
+        )
+
+    @update_params
+    def log_rank_stat(self, params: NDArray[np.float64]) -> np.float64:
+        N = self._training_data["nb_observations"]
+        eps_time = self._log_time_residuals()
+        eps_entry = self._log_entry_residuals()
+        covar = self._training_data.covar
+
+        S = np.zeros(covar.shape[1], dtype=np.float64)
+        for i in range(N - 1):
+            for j in range(i + 1, N):
+                min_eps_time = min(eps_time[i], eps_time[j])
+                max_eps_entry = max(eps_entry[i], eps_entry[j])
+                if max_eps_entry > min_eps_time:
+                    continue
+                S -= (
+                    covar[i, :] - covar[j, :]
+                    * np.sign(eps_time[i] - eps_time[j])
+                    * self._Oij(i, j, eps_time)
+                )
+
+        return np.sqrt(np.sum(S**2))
+
+
+
+
+
