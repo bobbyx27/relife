@@ -739,6 +739,11 @@ class SemiParamAFTFittingResults:
     )  #: Log rank statistic value at optimal parameters values
 
 
+def callback(*, intermediate_result):
+    print(f"Iter: {intermediate_result.nit}")
+    print(f"Obj: {intermediate_result.fun}")
+    print(f"x: {intermediate_result.x}")
+
 class SemiParametricAcceleratedFailureTime:
     """
     Class for semi-parametric, accelerated failure time, model
@@ -800,7 +805,7 @@ class SemiParametricAcceleratedFailureTime:
 
     @update_params
     def log_rank_stat(self, params: NDArray[np.float64]) -> np.float64:
-        N = self._training_data["nb_observations"]
+        N = self._training_data.nb_observations
         eps_time = self._log_time_residuals()
         eps_entry = self._log_entry_residuals()
         covar = self._training_data.covar
@@ -810,15 +815,15 @@ class SemiParametricAcceleratedFailureTime:
             for j in range(i + 1, N):
                 min_eps_time = min(eps_time[i], eps_time[j])
                 max_eps_entry = max(eps_entry[i], eps_entry[j])
-                if max_eps_entry > min_eps_time:
+                oij = self._Oij(i, j, eps_time)
+                if (max_eps_entry > min_eps_time) or (oij == 0):
                     continue
                 S -= (
                     covar[i, :] - covar[j, :]
                     * np.sign(eps_time[i] - eps_time[j])
-                    * self._Oij(i, j, eps_time)
                 )
 
-        return np.sqrt(np.sum(S**2))
+        return np.sum(S**2) / N**2
 
     def fit(
             self,
@@ -848,6 +853,7 @@ class SemiParametricAcceleratedFailureTime:
             x0=x0,
             method=method,
             bounds=bounds,
+            callback=callback
         )
 
         # Set output
@@ -855,10 +861,37 @@ class SemiParametricAcceleratedFailureTime:
         self.covar_effect.params = optimal_params
 
         return SemiParamAFTFittingResults(
-            nb_obversations=self._training_data["nb_observations"],
+            nb_obversations=self._training_data.nb_observations,
             optimal_params=optimal_params,
             log_rank_stat=optimizer.fun
         )
+
+
+if __name__ == "__main__":
+    from pathlib import Path
+    import pandas as pd
+
+    # Données chaines d'isolateur
+    relife_csv_datapath = Path(r"D:\Projets\RTE\ReLife\relife\relife\data\csv")
+    time, event, entry, *args = np.loadtxt(relife_csv_datapath / "insulator_string.csv", delimiter=",", skiprows=1,
+                                           unpack=True)
+    covar = np.column_stack(args)
+
+    # Into df
+    data = pd.DataFrame({"time": time, "event": event, "entry": entry})
+    covar = pd.DataFrame(covar)
+    covar.columns = [f"covar_{i}" for i in range(covar.shape[1])]
+    data = pd.concat([data, covar], axis=1)
+
+    # Relife model fit
+    re_model = SemiParametricAcceleratedFailureTime()
+    re_model.fit(
+        time=data["time"],
+        covar=data.filter(regex="covar").values,
+        event=data["event"],
+    )
+    print(re_model.params)
+
 
 
 
