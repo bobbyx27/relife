@@ -56,7 +56,7 @@ from ._distribution import (
 )
 from ._non_parametric import ECDF, KaplanMeier, NelsonAalen
 from ._regression import ParametricAcceleratedFailureTime, ParametricProportionalHazard
-from ._semi_parametric import SemiParametricProportionalHazard
+from ._semi_parametric import SemiParametricProportionalHazard, SemiParametricAcceleratedFailureTime
 
 __all__ = [
     "LifetimeLikelihood",
@@ -70,6 +70,7 @@ __all__ = [
     "ParametricProportionalHazard",
     "ParametricAcceleratedFailureTime",
     "SemiParametricProportionalHazard",
+    "SemiParametricAcceleratedFailureTime",
     "KaplanMeier",
     "ECDF",
     "NelsonAalen",
