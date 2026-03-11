@@ -795,33 +795,26 @@ class SemiParametricAcceleratedFailureTime:
             raise ValueError("You need data to compute log_residuals")
         return self._training_data.log_entry - self.covar_effect.g(self._training_data.covar, log_scale=True)
 
-    def _Oij(self, i: int, j: int, eps_time: NDArray[np.float64]) -> np.int64:
-        data = self._training_data
-        return (
-                data.event[i] * data.event[j]
-                + data.event[i] * (1 - data.event[j]) * (eps_time[i] < eps_time[j])
-                + (1 - data.event[i]) * data.event[j] * (eps_time[i] > eps_time[j])
-        )
-
     @update_params
     def log_rank_stat(self, params: NDArray[np.float64]) -> np.float64:
         N = self._training_data.nb_observations
         eps_time = self._log_time_residuals()
         eps_entry = self._log_entry_residuals()
         covar = self._training_data.covar
+        event = self._training_data.event
 
         S = np.zeros(covar.shape[1], dtype=np.float64)
-        for i in range(N - 1):
-            for j in range(i + 1, N):
-                min_eps_time = min(eps_time[i], eps_time[j])
-                max_eps_entry = max(eps_entry[i], eps_entry[j])
-                oij = self._Oij(i, j, eps_time)
-                if (max_eps_entry > min_eps_time) or (oij == 0):
-                    continue
-                S -= (
-                    covar[i, :] - covar[j, :]
-                    * np.sign(eps_time[i] - eps_time[j])
-                )
+        for i in range(N):
+            X_diff_ij = covar[i, :] - covar[(i + 1):, :]
+            eps_time_sgn_diff_ij = np.sign(eps_time[i] - eps_time[(i + 1):])
+            min_eps_time = np.minimum(eps_time[i], eps_time[(i + 1):])
+            max_eps_entry = np.maximum(eps_entry[i], eps_entry[(i + 1):])
+            oij = (
+                    event[i] * event[(i + 1):]
+                    + event[i] * (1 - event[(i + 1):]) * (eps_time[i] < eps_time[(i + 1):])
+                    + (1 - event[i]) * event[(i + 1):] * (eps_time[i] > eps_time[(i + 1):])
+            )
+            S -= np.sum(X_diff_ij * eps_time_sgn_diff_ij * (max_eps_entry <= min_eps_time) * oij, axis=0)
 
         return np.sum(S**2) / N**2
 
