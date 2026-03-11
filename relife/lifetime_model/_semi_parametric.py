@@ -6,6 +6,7 @@ from numpy._typing import NDArray
 from optype.numpy import Array1D, ToFloat, ToFloat2D
 from scipy.optimize import Bounds, minimize
 from scipy.stats import norm
+from numba import njit, prange, float64
 from typing_extensions import Literal, Unpack, final, overload, override, Callable
 
 from relife.base import MaximumLikelihoodFittingResults, MaximumLikehoodOptimizer
@@ -740,9 +741,37 @@ class SemiParamAFTFittingResults:
 
 
 def callback(*, intermediate_result):
-    print(f"Iter: {intermediate_result.nit}")
+    #print(f"Iter: {intermediate_result.nit}")
     print(f"Obj: {intermediate_result.fun}")
     print(f"x: {intermediate_result.x}")
+
+
+@njit(float64(float64[:,:], float64[:,:], float64[:,:], float64[:,:]),
+      cache=True, fastmath=False, parallel=False) # fastmath=True improvement is negligible, parallel=True does not work
+def _log_rank_stat(                               # Ultimately disappointing, only x2 speed
+        covar: NDArray[np.float64],
+        event: NDArray[np.float64],
+        eps_time: NDArray[np.float64],
+        eps_entry: NDArray[np.float64]
+) -> np.float64:
+
+    N = len(covar)
+    S = np.zeros(covar.shape[1], dtype=np.float64)
+
+    for i in prange(N - 1):
+        X_diff_ij = covar[i, :] - covar[(i + 1):, :]
+        eps_time_sgn_diff_ij = np.sign(eps_time[i] - eps_time[(i + 1):])
+        min_eps_time = np.minimum(eps_time[i], eps_time[(i + 1):])
+        max_eps_entry = np.maximum(eps_entry[i], eps_entry[(i + 1):])
+        oij = (
+                event[i] * event[(i + 1):]
+                + event[i] * (1 - event[(i + 1):]) * (eps_time[i] < eps_time[(i + 1):])
+                + (1 - event[i]) * event[(i + 1):] * (eps_time[i] > eps_time[(i + 1):])
+        )
+        S -= np.sum(X_diff_ij * eps_time_sgn_diff_ij * (max_eps_entry <= min_eps_time) * oij, axis=0)
+
+    return np.sum(S ** 2) / N ** 2
+
 
 class SemiParametricAcceleratedFailureTime:
     """
@@ -797,26 +826,12 @@ class SemiParametricAcceleratedFailureTime:
 
     @update_params
     def log_rank_stat(self, params: NDArray[np.float64]) -> np.float64:
-        N = self._training_data.nb_observations
         eps_time = self._log_time_residuals()
         eps_entry = self._log_entry_residuals()
         covar = self._training_data.covar
         event = self._training_data.event
 
-        S = np.zeros(covar.shape[1], dtype=np.float64)
-        for i in range(N):
-            X_diff_ij = covar[i, :] - covar[(i + 1):, :]
-            eps_time_sgn_diff_ij = np.sign(eps_time[i] - eps_time[(i + 1):])
-            min_eps_time = np.minimum(eps_time[i], eps_time[(i + 1):])
-            max_eps_entry = np.maximum(eps_entry[i], eps_entry[(i + 1):])
-            oij = (
-                    event[i] * event[(i + 1):]
-                    + event[i] * (1 - event[(i + 1):]) * (eps_time[i] < eps_time[(i + 1):])
-                    + (1 - event[i]) * event[(i + 1):] * (eps_time[i] > eps_time[(i + 1):])
-            )
-            S -= np.sum(X_diff_ij * eps_time_sgn_diff_ij * (max_eps_entry <= min_eps_time) * oij, axis=0)
-
-        return np.sum(S**2) / N**2
+        return _log_rank_stat(covar, event, eps_time, eps_entry)
 
     def fit(
             self,
