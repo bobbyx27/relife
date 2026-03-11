@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy._typing import NDArray
 from optype.numpy import Array1D, ToFloat, ToFloat2D
-from scipy.optimize import Bounds, minimize
+from scipy.optimize import Bounds, minimize_scalar
 from scipy.stats import norm
 from numba import njit, prange, float64
 from typing_extensions import Literal, Unpack, final, overload, override, Callable
@@ -740,15 +740,10 @@ class SemiParamAFTFittingResults:
     )  #: Log rank statistic value at optimal parameters values
 
 
-def callback(*, intermediate_result):
-    #print(f"Iter: {intermediate_result.nit}")
-    print(f"Obj: {intermediate_result.fun}")
-    print(f"x: {intermediate_result.x}")
-
-
-@njit(float64(float64[:,:], float64[:,:], float64[:,:], float64[:,:]),
-      cache=True, fastmath=False, parallel=False) # fastmath=True improvement is negligible, parallel=True does not work
-def _log_rank_stat(                               # Ultimately disappointing, only x2 speed
+#@njit(float64(float64[:,:], float64[:,:], float64[:,:], float64[:,:]),
+      #cache=True, fastmath=False, parallel=False) # fastmath=True improvement is negligible, parallel=True does not work
+@njit(fastmath=False, parallel=False)              # Ultimately disappointing, only x2 speed
+def _log_rank_stat(
         covar: NDArray[np.float64],
         event: NDArray[np.float64],
         eps_time: NDArray[np.float64],
@@ -798,7 +793,7 @@ class SemiParametricAcceleratedFailureTime:
     @staticmethod
     def update_params(fun: Callable) -> Callable:
         def wrapper(self, params: NDArray[np.float64], *args, **kwargs):
-            self.covar_effect.params = params
+            self.covar_effect.params = np.array([params]) if params.ndim == 0 else params
             return fun(self, params, *args, **kwargs)
         return wrapper
 
@@ -839,7 +834,7 @@ class SemiParametricAcceleratedFailureTime:
             covar: NDArray[np.float64],
             event: NDArray[np.bool_] | None = None,
             entry: NDArray[np.float64] | None = None,
-            **optimizer_options: Unpack[ScipyMinimizeOptions],
+            **kwargs
     ) -> SemiParamAFTFittingResults:
         # Init covar_effect
         self.covar_effect = LinearCovarEffect(
@@ -852,21 +847,14 @@ class SemiParametricAcceleratedFailureTime:
         )
 
         # Set optimizer and minimize
-        x0 = optimizer_options.pop("x0", np.zeros(covar.shape[1], dtype=np.float64))
-        method = optimizer_options.pop("method", "Nelder-Mead")
-        bounds = optimizer_options.pop("bounds", None)
-
-        optimizer = minimize(
+        optimizer = minimize_scalar(
             self.log_rank_stat,
-            x0=x0,
-            method=method,
-            bounds=bounds,
-            callback=callback
+            **kwargs
         )
 
         # Set output
         optimal_params = np.copy(optimizer.x)
-        self.covar_effect.params = optimal_params
+        self.covar_effect.params = np.array([optimal_params]) if optimal_params.ndim == 0 else optimal_params
 
         return SemiParamAFTFittingResults(
             nb_obversations=self._training_data.nb_observations,
@@ -879,26 +867,23 @@ if __name__ == "__main__":
     from pathlib import Path
     import pandas as pd
 
-    # Données chaines d'isolateur
-    relife_csv_datapath = Path(r"D:\Projets\RTE\ReLife\relife\relife\data\csv")
-    time, event, entry, *args = np.loadtxt(relife_csv_datapath / "insulator_string.csv", delimiter=",", skiprows=1,
-                                           unpack=True)
-    covar = np.column_stack(args)
-
-    # Into df
-    data = pd.DataFrame({"time": time, "event": event, "entry": entry})
-    covar = pd.DataFrame(covar)
-    covar.columns = [f"covar_{i}" for i in range(covar.shape[1])]
-    data = pd.concat([data, covar], axis=1)
-
-    # Relife model fit
-    re_model = SemiParametricAcceleratedFailureTime()
-    re_model.fit(
-        time=data["time"],
-        covar=data.filter(regex="covar").values,
-        event=data["event"],
+    # Données
+    channing_data = pd.read_csv(Path(r"D:\Projets\RTE\ReLife") / "channing.csv", sep=";", decimal=",")
+    channing_data = (
+        channing_data
+        .drop(columns="time")
+        .rename(columns={"exit": "time", "cens": "event"})
     )
-    print(re_model.params)
+    time, event, entry = channing_data["time"].values, channing_data["event"].astype(float).values, channing_data[
+        "entry"].values
+    covar = (channing_data[["sex"]] == "Male").astype(float).values
+
+    # Test fit
+    model = SemiParametricAcceleratedFailureTime()
+    model.fit(
+        time=time, covar=covar, event=event, entry=entry, bracket=(-0.07, 0.07)
+    )
+    print(model.params)
 
 
 
