@@ -4,8 +4,9 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy._typing import NDArray
 from optype.numpy import Array1D, ToFloat, ToFloat2D
-from scipy.optimize import Bounds, minimize_scalar
+from scipy.optimize import Bounds, minimize
 from scipy.stats import norm
+from scipy.special import erf
 from numba import njit, prange, float64
 from typing_extensions import Literal, Unpack, final, overload, override, Callable
 
@@ -767,6 +768,54 @@ def _log_rank_stat(
 
     return np.sum(S ** 2) / N ** 2
 
+@njit(fastmath=False, parallel=False)
+def _log_rank_stat_smooth(
+        covar: NDArray[np.float64],
+        event: NDArray[np.float64],
+        eps_time: NDArray[np.float64],
+        eps_entry: NDArray[np.float64]
+) -> np.float64:
+
+    N = len(covar)
+    S = np.zeros(covar.shape[1], dtype=np.float64)
+
+    for i in prange(N):
+        if event[i] == 0:
+            continue
+        X_diff_ij = covar[i, :] - covar[:, :]
+        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1))
+        eps_time_diff_norm = (eps_time - eps_time[i]) / rij_star
+        eps_entry_minus_eps_time_norm = (eps_entry - eps_time[i]) / rij_star
+        S += np.sum(X_diff_ij * (erf(eps_time_diff_norm) - erf(eps_entry_minus_eps_time_norm)), axis=0)
+
+    return np.sum(S ** 2) / N ** 2
+
+@njit(fastmath=False, parallel=False)
+def _jac_log_rank_stat_smooth(
+        covar: NDArray[np.float64],
+        event: NDArray[np.float64],
+        eps_time: NDArray[np.float64],
+        eps_entry: NDArray[np.float64]
+) -> np.float64:
+
+    N = len(covar)
+    S = np.zeros((covar.shape[1], covar.shape[1]), dtype=np.float64)
+
+    for i in prange(N):
+        if event[i] == 0:
+            continue
+        X_diff_ij = covar[i, :] - covar[:, :]
+        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1))
+        eps_time_diff_norm = (eps_time - eps_time[i]) / rij_star
+        eps_entry_minus_eps_time_norm = (eps_entry - eps_time[i]) / rij_star
+        X_diff_mult_outer = np.multiply.outer(X_diff_ij, X_diff_ij)
+        X_diff_mult_outer_reshaped = np.ones((N, covar.shape[1], covar.shape[1]))
+        for k in range(N):
+            X_diff_mult_outer_reshaped[k, :, :] = X_diff_mult_outer[k, :, k, :]
+        S += np.sum(X_diff_mult_outer_reshaped * (np.exp(eps_time_diff_norm) - np.exp(eps_entry_minus_eps_time_norm)) / rij_star, axis=0)
+    # TODO: continue
+    return 2 * 2 / np.sqrt(np.pi) * S / N ** 2
+
 
 class SemiParametricAcceleratedFailureTime:
     """
@@ -793,7 +842,7 @@ class SemiParametricAcceleratedFailureTime:
     @staticmethod
     def update_params(fun: Callable) -> Callable:
         def wrapper(self, params: NDArray[np.float64], *args, **kwargs):
-            self.covar_effect.params = np.array([params]) if params.ndim == 0 else params
+            self.covar_effect.params = params
             return fun(self, params, *args, **kwargs)
         return wrapper
 
@@ -847,14 +896,21 @@ class SemiParametricAcceleratedFailureTime:
         )
 
         # Set optimizer and minimize
-        optimizer = minimize_scalar(
+        x0 = kwargs.pop("x0", np.zeros(covar.shape[1], dtype=np.float64))
+        method = kwargs.pop("method", "Nelder-Mead")
+        bounds = kwargs.pop("bounds", None)
+
+        optimizer = minimize(
             self.log_rank_stat,
+            x0=x0,
+            method=method,
+            bounds=bounds,
             **kwargs
         )
 
         # Set output
         optimal_params = np.copy(optimizer.x)
-        self.covar_effect.params = np.array([optimal_params]) if optimal_params.ndim == 0 else optimal_params
+        self.covar_effect.params = optimal_params
 
         return SemiParamAFTFittingResults(
             nb_obversations=self._training_data.nb_observations,
