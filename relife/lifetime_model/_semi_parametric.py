@@ -777,18 +777,18 @@ def _log_rank_stat_smooth(
 ) -> np.float64:
 
     N = len(covar)
-    S = np.zeros(covar.shape[1], dtype=np.float64)
+    S = np.zeros(covar.shape[1], dtype=np.float64) # gradient de l'objectif de régression rank-based
 
     for i in prange(N):
         if event[i] == 0:
             continue
-        X_diff_ij = covar[i, :] - covar[:, :]
-        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1))
-        eps_time_diff_norm = (eps_time - eps_time[i]) / rij_star
-        eps_entry_minus_eps_time_norm = (eps_entry - eps_time[i]) / rij_star
-        S += np.sum(X_diff_ij * (erf(eps_time_diff_norm) - erf(eps_entry_minus_eps_time_norm)), axis=0)
+        X_diff_ij = covar[i, :] - covar[:, :] # (N,p)
+        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1)) # (N,)
+        eps_time_diff_norm = (eps_time - eps_time[i]) / rij_star # (N,)
+        eps_entry_minus_eps_time_norm = (eps_entry - eps_time[i]) / rij_star # (N,)
+        S += np.sum(X_diff_ij * (erf(eps_time_diff_norm) - erf(eps_entry_minus_eps_time_norm)), axis=0) # (p,)
 
-    return np.sum(S ** 2) / N ** 2
+    return np.sum(S ** 2) / N ** 2  # On nullifie les composantes du gradient par minimisation scalaire de sa norme L2
 
 @njit(fastmath=False, parallel=False)
 def _jac_log_rank_stat_smooth(
@@ -799,22 +799,25 @@ def _jac_log_rank_stat_smooth(
 ) -> np.float64:
 
     N = len(covar)
-    S = np.zeros((covar.shape[1], covar.shape[1]), dtype=np.float64)
+    S = np.zeros((covar.shape[1], covar.shape[1]), dtype=np.float64) # jacobienne du gradient de l'objectif de régression rank-based
 
     for i in prange(N):
         if event[i] == 0:
             continue
-        X_diff_ij = covar[i, :] - covar[:, :]
-        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1))
-        eps_time_diff_norm = (eps_time - eps_time[i]) / rij_star
-        eps_entry_minus_eps_time_norm = (eps_entry - eps_time[i]) / rij_star
-        X_diff_mult_outer = np.multiply.outer(X_diff_ij, X_diff_ij)
-        X_diff_mult_outer_reshaped = np.ones((N, covar.shape[1], covar.shape[1]))
-        for k in range(N):
-            X_diff_mult_outer_reshaped[k, :, :] = X_diff_mult_outer[k, :, k, :]
-        S += np.sum(X_diff_mult_outer_reshaped * (np.exp(eps_time_diff_norm) - np.exp(eps_entry_minus_eps_time_norm)) / rij_star, axis=0)
-    # TODO: continue
-    return 2 * 2 / np.sqrt(np.pi) * S / N ** 2
+        X_diff_ij = covar[i, :] - covar[:, :] # (N,p)
+        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1)) # (N,)
+        eps_time_diff_norm = (eps_time - eps_time[i]) / rij_star # (N,)
+        eps_entry_minus_eps_time_norm = (eps_entry - eps_time[i]) / rij_star # (N,)
+        X_diff_mult_outer = np.multiply.outer(X_diff_ij, X_diff_ij) # (N,p,N,p)
+        X_diff_mult_outer_reshaped = np.transpose(np.diagonal(X_diff_mult_outer, axis1=0, axis2=2), axes=(2, 0, 1)) # (N,p,p)
+        S += 2 / np.sqrt(np.pi) * np.sum(
+            X_diff_mult_outer_reshaped
+            * (np.exp(eps_time_diff_norm) - np.exp(eps_entry_minus_eps_time_norm))
+            / rij_star, axis=0) # (p,p)
+
+    rank_stat = _log_rank_stat_smooth(covar, event, eps_time, eps_entry)
+
+    return 2 / N ** 2 * S @ rank_stat # (p,), car S est symétrique (car en réalité une hessienne), pas besoin de transposer
 
 
 class SemiParametricAcceleratedFailureTime:
