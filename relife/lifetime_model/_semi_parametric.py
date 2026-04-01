@@ -768,7 +768,7 @@ def _log_rank_stat(
 
     return np.sum(S ** 2) / N ** 2
 
-@njit(fastmath=False, parallel=False)
+#@njit(fastmath=False, parallel=False)
 def _log_rank_stat_smooth(
         covar: NDArray[np.float64],
         event: NDArray[np.float64],
@@ -783,14 +783,16 @@ def _log_rank_stat_smooth(
         if event[i] == 0:
             continue
         X_diff_ij = covar[i, :] - covar[:, :] # (N,p)
-        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1)) # (N,)
-        eps_time_diff_norm = (eps_time - eps_time[i]) / rij_star # (N,)
-        eps_entry_minus_eps_time_norm = (eps_entry - eps_time[i]) / rij_star # (N,)
+        drop_index = np.where(np.sum(X_diff_ij ** 2, axis=1) == 0)[0]
+        X_diff_ij = np.delete(X_diff_ij, drop_index, axis=0)
+        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1, keepdims=True)) # (N,)
+        eps_time_diff_norm = (np.delete(eps_time, drop_index, axis=0) - eps_time[i]) / rij_star # (N,)
+        eps_entry_minus_eps_time_norm = (np.delete(eps_entry, drop_index, axis=0) - eps_time[i]) / rij_star # (N,)
         S += np.sum(X_diff_ij * (erf(eps_time_diff_norm) - erf(eps_entry_minus_eps_time_norm)), axis=0) # (p,)
 
     return np.sum(S ** 2) / N ** 2  # On nullifie les composantes du gradient par minimisation scalaire de sa norme L2
 
-@njit(fastmath=False, parallel=False)
+#@njit(fastmath=False, parallel=False)
 def _jac_log_rank_stat_smooth(
         covar: NDArray[np.float64],
         event: NDArray[np.float64],
@@ -804,16 +806,21 @@ def _jac_log_rank_stat_smooth(
     for i in prange(N):
         if event[i] == 0:
             continue
-        X_diff_ij = covar[i, :] - covar[:, :] # (N,p)
-        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1)) # (N,)
-        eps_time_diff_norm = (eps_time - eps_time[i]) / rij_star # (N,)
-        eps_entry_minus_eps_time_norm = (eps_entry - eps_time[i]) / rij_star # (N,)
+        X_diff_ij = covar[i, :] - covar[:, :]  # (N,p)
+        drop_index = np.where(np.sum(X_diff_ij ** 2, axis=1) == 0)[0]
+        X_diff_ij = np.delete(X_diff_ij, drop_index, axis=0)
+        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1, keepdims=True)) # (N,)
+        eps_time_diff_norm = (np.delete(eps_time, drop_index, axis=0) - eps_time[i]) / rij_star # (N,)
+        eps_entry_minus_eps_time_norm = (np.delete(eps_entry, drop_index, axis=0) - eps_time[i]) / rij_star # (N,)
         X_diff_mult_outer = np.multiply.outer(X_diff_ij, X_diff_ij) # (N,p,N,p)
         X_diff_mult_outer_reshaped = np.transpose(np.diagonal(X_diff_mult_outer, axis1=0, axis2=2), axes=(2, 0, 1)) # (N,p,p)
-        S += 2 / np.sqrt(np.pi) * np.sum(
-            X_diff_mult_outer_reshaped
-            * (np.exp(eps_time_diff_norm) - np.exp(eps_entry_minus_eps_time_norm))
-            / rij_star, axis=0) # (p,p)
+        S += (
+                2 / np.sqrt(np.pi)
+                * np.sum(X_diff_mult_outer_reshaped
+                         * np.expand_dims((np.exp(eps_time_diff_norm) - np.exp(eps_entry_minus_eps_time_norm)) / rij_star,
+                                          axis=-1),
+                         axis=0) # (p,p)
+        )
 
     rank_stat = _log_rank_stat_smooth(covar, event, eps_time, eps_entry)
 
@@ -878,7 +885,16 @@ class SemiParametricAcceleratedFailureTime:
         covar = self._training_data.covar
         event = self._training_data.event
 
-        return _log_rank_stat(covar, event, eps_time, eps_entry)
+        return _log_rank_stat_smooth(covar, event, eps_time, eps_entry)
+
+    @update_params
+    def jac_log_rank_stat(self, params: NDArray[np.float64]) -> np.float64:
+        eps_time = self._log_time_residuals()
+        eps_entry = self._log_entry_residuals()
+        covar = self._training_data.covar
+        event = self._training_data.event
+
+        return _jac_log_rank_stat_smooth(covar, event, eps_time, eps_entry)
 
     def fit(
             self,
@@ -900,13 +916,15 @@ class SemiParametricAcceleratedFailureTime:
 
         # Set optimizer and minimize
         x0 = kwargs.pop("x0", np.zeros(covar.shape[1], dtype=np.float64))
-        method = kwargs.pop("method", "Nelder-Mead")
+        method = kwargs.pop("method", "L-BFGS-B")
+        jac = kwargs.pop("jac", self.jac_log_rank_stat_smooth)
         bounds = kwargs.pop("bounds", None)
 
         optimizer = minimize(
             self.log_rank_stat,
             x0=x0,
             method=method,
+            jac=jac,
             bounds=bounds,
             **kwargs
         )
@@ -925,24 +943,37 @@ class SemiParametricAcceleratedFailureTime:
 if __name__ == "__main__":
     from pathlib import Path
     import pandas as pd
+    import datetime
 
-    # Données
-    channing_data = pd.read_csv(Path(r"D:\Projets\RTE\ReLife") / "channing.csv", sep=";", decimal=",")
-    channing_data = (
-        channing_data
-        .drop(columns="time")
-        .rename(columns={"exit": "time", "cens": "event"})
-    )
-    time, event, entry = channing_data["time"].values, channing_data["event"].astype(float).values, channing_data[
-        "entry"].values
-    covar = (channing_data[["sex"]] == "Male").astype(float).values
+    # Données chaines d'isolateur
+    relife_csv_datapath = Path(r"D:\Projets\RTE\ReLife\relife\relife\data\csv")
+    time, event, entry, *args = np.loadtxt(relife_csv_datapath / "insulator_string.csv", delimiter=",", skiprows=1,
+                                           unpack=True)
+    covar = np.column_stack(args)
 
     # Test fit
     model = SemiParametricAcceleratedFailureTime()
-    model.fit(
-        time=time, covar=covar, event=event, entry=entry, bracket=(-0.07, 0.07)
+
+    # Init covar_effect
+    N = len(covar)
+
+    model.covar_effect = LinearCovarEffect(
+        (None,) * np.atleast_2d(np.asarray(covar, dtype=np.float64)).shape[-1]
     )
-    print(model.params)
+
+    # Build training_data
+    entry = np.maximum(entry, 0.5)
+    model._training_data = SemiParamAFTData(
+        time=np.float64(time[:N]), covar=np.float64(covar[:N]), event=np.float64(event[:N]), entry=np.float64(entry[:N])
+    )
+
+    start = datetime.datetime.now()
+    print(model.log_rank_stat(np.zeros(3)))
+    end1 = datetime.datetime.now()
+    print(end1 - start)
+    print(model.jac_log_rank_stat(np.zeros(3)))
+    end2 = datetime.datetime.now()
+    print(end2 - end1)
 
 
 
