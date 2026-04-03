@@ -774,6 +774,7 @@ def _log_rank_stat_smooth(
         event: NDArray[np.float64],
         eps_time: NDArray[np.float64],
         eps_entry: NDArray[np.float64],
+        s2: np.float64 = 1,
         return_grad: bool = False
 ) -> NDArray[np.float64] | np.float64:
 
@@ -786,7 +787,7 @@ def _log_rank_stat_smooth(
         X_diff_ij = covar[i, :] - covar[:, :] # (N,p)
         drop_index = np.where(np.sum(X_diff_ij ** 2, axis=1) == 0)[0]
         X_diff_ij = np.delete(X_diff_ij, drop_index, axis=0)
-        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1, keepdims=True)) # (N,)
+        rij_star = np.sqrt(2 / N * np.sum(s2 * X_diff_ij ** 2, axis=1, keepdims=True)) # (N,)
         eps_time_diff_norm = (np.delete(eps_time, drop_index, axis=0) - eps_time[i]) / rij_star # (N,)
         eps_entry_minus_eps_time_norm = (np.delete(eps_entry, drop_index, axis=0) - eps_time[i]) / rij_star # (N,)
         S += np.sum(X_diff_ij * (erf(eps_time_diff_norm) - erf(eps_entry_minus_eps_time_norm)), axis=0) # (p,)
@@ -801,7 +802,8 @@ def _jac_log_rank_stat_smooth(
         covar: NDArray[np.float64],
         event: NDArray[np.float64],
         eps_time: NDArray[np.float64],
-        eps_entry: NDArray[np.float64]
+        eps_entry: NDArray[np.float64],
+        s2: np.float64 = 1,
 ) -> np.float64:
 
     N = len(covar)
@@ -813,9 +815,11 @@ def _jac_log_rank_stat_smooth(
         X_diff_ij = covar[i, :] - covar[:, :]  # (N,p)
         drop_index = np.where(np.sum(X_diff_ij ** 2, axis=1) == 0)[0]
         X_diff_ij = np.delete(X_diff_ij, drop_index, axis=0)
-        rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1, keepdims=True)) # (N,)
-        eps_time_diff_norm = (np.delete(eps_time, drop_index, axis=0) - eps_time[i]) / rij_star # (N,)
-        eps_entry_minus_eps_time_norm = (np.delete(eps_entry, drop_index, axis=0) - eps_time[i]) / rij_star # (N,)
+        rij_star = np.sqrt(2 / N * np.sum(s2 * X_diff_ij ** 2, axis=1, keepdims=True)) # (N,)
+        eps_time_diff_norm = -(np.delete(eps_time, drop_index, axis=0) - eps_time[i]) ** 2 / rij_star ** 2 # (N,)
+        eps_time_diff_norm = np.clip(eps_time_diff_norm, a_min=None, a_max=709) # to prevent numerical overflow,
+        eps_entry_minus_eps_time_norm = -(np.delete(eps_entry, drop_index, axis=0) - eps_time[i]) ** 2 / rij_star ** 2 # (N,)
+        eps_entry_minus_eps_time_norm = np.clip(eps_entry_minus_eps_time_norm, a_min=None, a_max=709) # to prevent numerical overflow,
         X_diff_mult_outer = np.zeros((X_diff_ij.shape[0], covar.shape[1], covar.shape[1]), dtype=np.float64) # (N,p,p)
         for k in prange(covar.shape[1]):
             X_diff_mult_outer[:, :, k] = X_diff_ij[:, :] * X_diff_ij[:, [k]]
@@ -823,13 +827,13 @@ def _jac_log_rank_stat_smooth(
         Si = (
                 2 / np.sqrt(np.pi)
                 * np.sum(X_diff_mult_outer
-                         * np.expand_dims(np.nan_to_num(exp_diff_norm, posinf=np.finfo(exp_diff_norm.dtype).max), # to prevent numerical overflow,
+                         * np.expand_dims(np.nan_to_num(exp_diff_norm, posinf=np.finfo(exp_diff_norm.dtype).max), # if overflow happened anyway
                                           axis=-1),
                          axis=0) # (p,p)
         )
-        S += np.nan_to_num(Si, posinf=np.finfo(Si.dtype).max)
+        S += np.nan_to_num(Si, posinf=np.finfo(Si.dtype).max) # if overflow happened anyway
 
-    rank_stat = _log_rank_stat_smooth(covar, event, eps_time, eps_entry, return_grad=True)
+    rank_stat = _log_rank_stat_smooth(covar, event, eps_time, eps_entry, s2=s2, return_grad=True)
 
     return 2 / N ** 2 * S @ rank_stat # (p,), car S est symétrique (car en réalité une hessienne), pas besoin de transposer
 
@@ -849,9 +853,11 @@ class SemiParametricAcceleratedFailureTime:
     covar_effect: LinearCovarEffect | None
     _training_data: SemiParamAFTData | None
     _sf: NDArray[np.void] | None
+    _s2: np.float64 | None
 
     def __init__(self):
         self._sf = None
+        self._s2 = None
         self._training_data = None
         self.fitting_results = None
         self.covar_effect = None
@@ -892,7 +898,7 @@ class SemiParametricAcceleratedFailureTime:
         covar = self._training_data.covar
         event = self._training_data.event
 
-        return _log_rank_stat_smooth(covar, event, eps_time, eps_entry)
+        return _log_rank_stat_smooth(covar, event, eps_time, eps_entry, s2=self._s2)
 
     @update_params
     def jac_log_rank_stat(self, params: NDArray[np.float64]) -> np.float64:
@@ -901,7 +907,7 @@ class SemiParametricAcceleratedFailureTime:
         covar = self._training_data.covar
         event = self._training_data.event
 
-        return _jac_log_rank_stat_smooth(covar, event, eps_time, eps_entry)
+        return _jac_log_rank_stat_smooth(covar, event, eps_time, eps_entry, s2=self._s2)
 
     def fit(
             self,
@@ -926,6 +932,7 @@ class SemiParametricAcceleratedFailureTime:
         method = kwargs.pop("method", "L-BFGS-B")
         jac = kwargs.pop("jac", self.jac_log_rank_stat)
         bounds = kwargs.pop("bounds", None)
+        self._s2 = kwargs.pop("s2", 1.)
 
         optimizer = minimize(
             self.log_rank_stat,
@@ -953,15 +960,10 @@ if __name__ == "__main__":
     import datetime
 
     # Données chaines d'isolateur
-    channing_data = pd.read_csv(Path(r"D:\Projets\RTE\ReLife") / "channing.csv", sep=";", decimal=",")
-    channing_data = (
-        channing_data
-        .drop(columns="time")
-        .rename(columns={"exit": "time", "cens": "event"})
-    )
-    time, event, entry = channing_data["time"].values, channing_data["event"].astype(float).values, channing_data[
-        "entry"].values
-    covar = (channing_data[["sex"]] == "Male").astype(float).values
+    relife_csv_datapath = Path(r"D:\Projets\RTE\ReLife\relife\relife\data\csv")
+    time, event, entry, *args = np.loadtxt(relife_csv_datapath / "insulator_string.csv", delimiter=",", skiprows=1,
+                                           unpack=True)
+    covar = np.column_stack(args)
 
     # Test fit
     model = SemiParametricAcceleratedFailureTime()
@@ -979,16 +981,17 @@ if __name__ == "__main__":
         time=np.float64(time[:N]), covar=np.float64(covar[:N]), event=np.float64(event[:N]), entry=np.float64(entry[:N])
     )
 
+    model._s2 = 1
     start = datetime.datetime.now()
-    print(model.log_rank_stat(np.zeros(1)))
+    print(model.log_rank_stat(np.zeros(3)))
     end1 = datetime.datetime.now()
     print(end1 - start)
-    print(model.jac_log_rank_stat(np.zeros(1)))
+    print(model.jac_log_rank_stat(np.zeros(3)))
     end2 = datetime.datetime.now()
     print(end2 - end1)
 
     model.fit(
-        time=time[:N], covar=covar[:N], event=event[:N], entry=entry[:N]
+        time=time[:N], covar=covar[:N], event=event[:N], entry=entry[:N], s2=1
     )
     print(model.params)
 
