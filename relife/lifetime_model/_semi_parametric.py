@@ -773,8 +773,9 @@ def _log_rank_stat_smooth(
         covar: NDArray[np.float64],
         event: NDArray[np.float64],
         eps_time: NDArray[np.float64],
-        eps_entry: NDArray[np.float64]
-) -> np.float64:
+        eps_entry: NDArray[np.float64],
+        return_grad: bool = False
+) -> NDArray[np.float64] | np.float64:
 
     N = len(covar)
     S = np.zeros(covar.shape[1], dtype=np.float64) # gradient de l'objectif de régression rank-based
@@ -790,7 +791,10 @@ def _log_rank_stat_smooth(
         eps_entry_minus_eps_time_norm = (np.delete(eps_entry, drop_index, axis=0) - eps_time[i]) / rij_star # (N,)
         S += np.sum(X_diff_ij * (erf(eps_time_diff_norm) - erf(eps_entry_minus_eps_time_norm)), axis=0) # (p,)
 
-    return np.sum(S ** 2) / N ** 2  # On nullifie les composantes du gradient par minimisation scalaire de sa norme L2
+    if return_grad:
+        return S
+    else:
+        return np.sum(S ** 2) / N ** 2  # On nullifie les composantes du gradient par minimisation scalaire de sa norme L2
 
 #@njit(fastmath=False, parallel=False)
 def _jac_log_rank_stat_smooth(
@@ -812,17 +816,20 @@ def _jac_log_rank_stat_smooth(
         rij_star = np.sqrt(2 / N * np.sum(X_diff_ij ** 2, axis=1, keepdims=True)) # (N,)
         eps_time_diff_norm = (np.delete(eps_time, drop_index, axis=0) - eps_time[i]) / rij_star # (N,)
         eps_entry_minus_eps_time_norm = (np.delete(eps_entry, drop_index, axis=0) - eps_time[i]) / rij_star # (N,)
-        X_diff_mult_outer = np.multiply.outer(X_diff_ij, X_diff_ij) # (N,p,N,p)
-        X_diff_mult_outer_reshaped = np.transpose(np.diagonal(X_diff_mult_outer, axis1=0, axis2=2), axes=(2, 0, 1)) # (N,p,p)
-        S += (
+        X_diff_mult_outer = np.zeros((X_diff_ij.shape[0], covar.shape[1], covar.shape[1]), dtype=np.float64) # (N,p,p)
+        for k in prange(covar.shape[1]):
+            X_diff_mult_outer[:, :, k] = X_diff_ij[:, :] * X_diff_ij[:, [k]]
+        exp_diff_norm = (np.exp(eps_time_diff_norm) - np.exp(eps_entry_minus_eps_time_norm)) / rij_star
+        Si = (
                 2 / np.sqrt(np.pi)
-                * np.sum(X_diff_mult_outer_reshaped
-                         * np.expand_dims((np.exp(eps_time_diff_norm) - np.exp(eps_entry_minus_eps_time_norm)) / rij_star,
+                * np.sum(X_diff_mult_outer
+                         * np.expand_dims(np.nan_to_num(exp_diff_norm, posinf=np.finfo(exp_diff_norm.dtype).max), # to prevent numerical overflow,
                                           axis=-1),
                          axis=0) # (p,p)
         )
+        S += np.nan_to_num(Si, posinf=np.finfo(Si.dtype).max)
 
-    rank_stat = _log_rank_stat_smooth(covar, event, eps_time, eps_entry)
+    rank_stat = _log_rank_stat_smooth(covar, event, eps_time, eps_entry, return_grad=True)
 
     return 2 / N ** 2 * S @ rank_stat # (p,), car S est symétrique (car en réalité une hessienne), pas besoin de transposer
 
@@ -917,7 +924,7 @@ class SemiParametricAcceleratedFailureTime:
         # Set optimizer and minimize
         x0 = kwargs.pop("x0", np.zeros(covar.shape[1], dtype=np.float64))
         method = kwargs.pop("method", "L-BFGS-B")
-        jac = kwargs.pop("jac", self.jac_log_rank_stat_smooth)
+        jac = kwargs.pop("jac", self.jac_log_rank_stat)
         bounds = kwargs.pop("bounds", None)
 
         optimizer = minimize(
@@ -946,10 +953,15 @@ if __name__ == "__main__":
     import datetime
 
     # Données chaines d'isolateur
-    relife_csv_datapath = Path(r"D:\Projets\RTE\ReLife\relife\relife\data\csv")
-    time, event, entry, *args = np.loadtxt(relife_csv_datapath / "insulator_string.csv", delimiter=",", skiprows=1,
-                                           unpack=True)
-    covar = np.column_stack(args)
+    channing_data = pd.read_csv(Path(r"D:\Projets\RTE\ReLife") / "channing.csv", sep=";", decimal=",")
+    channing_data = (
+        channing_data
+        .drop(columns="time")
+        .rename(columns={"exit": "time", "cens": "event"})
+    )
+    time, event, entry = channing_data["time"].values, channing_data["event"].astype(float).values, channing_data[
+        "entry"].values
+    covar = (channing_data[["sex"]] == "Male").astype(float).values
 
     # Test fit
     model = SemiParametricAcceleratedFailureTime()
@@ -968,12 +980,17 @@ if __name__ == "__main__":
     )
 
     start = datetime.datetime.now()
-    print(model.log_rank_stat(np.zeros(3)))
+    print(model.log_rank_stat(np.zeros(1)))
     end1 = datetime.datetime.now()
     print(end1 - start)
-    print(model.jac_log_rank_stat(np.zeros(3)))
+    print(model.jac_log_rank_stat(np.zeros(1)))
     end2 = datetime.datetime.now()
     print(end2 - end1)
+
+    model.fit(
+        time=time[:N], covar=covar[:N], event=event[:N], entry=entry[:N]
+    )
+    print(model.params)
 
 
 
