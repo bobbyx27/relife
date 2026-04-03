@@ -817,26 +817,24 @@ def _jac_log_rank_stat_smooth(
         X_diff_ij = np.delete(X_diff_ij, drop_index, axis=0)
         rij_star = np.sqrt(2 / N * np.sum(s2 * X_diff_ij ** 2, axis=1, keepdims=True)) # (N,)
         eps_time_diff_norm = -(np.delete(eps_time, drop_index, axis=0) - eps_time[i]) ** 2 / rij_star ** 2 # (N,)
-        eps_time_diff_norm = np.clip(eps_time_diff_norm, a_min=None, a_max=709) # to prevent numerical overflow,
         eps_entry_minus_eps_time_norm = -(np.delete(eps_entry, drop_index, axis=0) - eps_time[i]) ** 2 / rij_star ** 2 # (N,)
-        eps_entry_minus_eps_time_norm = np.clip(eps_entry_minus_eps_time_norm, a_min=None, a_max=709) # to prevent numerical overflow,
         X_diff_mult_outer = np.zeros((X_diff_ij.shape[0], covar.shape[1], covar.shape[1]), dtype=np.float64) # (N,p,p)
         for k in prange(covar.shape[1]):
             X_diff_mult_outer[:, :, k] = X_diff_ij[:, :] * X_diff_ij[:, [k]]
         exp_diff_norm = (np.exp(eps_time_diff_norm) - np.exp(eps_entry_minus_eps_time_norm)) / rij_star
-        Si = (
+        S += (
                 2 / np.sqrt(np.pi)
                 * np.sum(X_diff_mult_outer
-                         * np.expand_dims(np.nan_to_num(exp_diff_norm, posinf=np.finfo(exp_diff_norm.dtype).max), # if overflow happened anyway
-                                          axis=-1),
+                         * np.expand_dims(exp_diff_norm, axis=-1),
                          axis=0) # (p,p)
         )
-        S += np.nan_to_num(Si, posinf=np.finfo(Si.dtype).max) # if overflow happened anyway
 
     rank_stat = _log_rank_stat_smooth(covar, event, eps_time, eps_entry, s2=s2, return_grad=True)
 
     return 2 / N ** 2 * S @ rank_stat # (p,), car S est symétrique (car en réalité une hessienne), pas besoin de transposer
 
+def callback(*, intermediate_result):
+    print(intermediate_result.fun)
 
 class SemiParametricAcceleratedFailureTime:
     """
@@ -940,6 +938,7 @@ class SemiParametricAcceleratedFailureTime:
             method=method,
             jac=jac,
             bounds=bounds,
+            callback=callback,
             **kwargs
         )
 
@@ -989,11 +988,12 @@ if __name__ == "__main__":
     print(model.jac_log_rank_stat(np.zeros(3)))
     end2 = datetime.datetime.now()
     print(end2 - end1)
-
     model.fit(
         time=time[:N], covar=covar[:N], event=event[:N], entry=entry[:N], s2=1
     )
     print(model.params)
+    end3 = datetime.datetime.now()
+    print(end3 - end2)
 
 
 
