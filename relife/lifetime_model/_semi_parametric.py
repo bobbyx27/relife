@@ -43,6 +43,7 @@ class CoxData:
             if self.entry is not None
             else np.zeros_like(self.time, dtype=np.float64)
         )
+        self.covar = reshape_1d_arg(self.covar)
         sizes = [len(x) for x in (self.time, self.event, self.entry, self.covar)]
 
         if len(set(sizes)) != 1:
@@ -354,7 +355,7 @@ class SemiParametricProportionalHazard:
     ):
         # init covar_effect
         self.covar_effect = LinearCovarEffect(
-            (None,) * np.atleast_2d(np.asarray(covar, dtype=np.float64)).shape[-1]
+            (None,) * reshape_1d_arg(np.asarray(covar, dtype=np.float64)).shape[-1]
         )
 
         _,  event_count = np.unique(time[event == 1], return_counts=True)
@@ -715,6 +716,7 @@ class SemiParamAFTData:
             if self.entry is not None
             else np.zeros_like(self.time, dtype=np.float64)
         )
+        self.covar = reshape_1d_arg(self.covar)
         sizes = [len(x) for x in (self.time, self.event, self.entry, self.covar)]
 
         if len(set(sizes)) != 1:
@@ -833,8 +835,6 @@ def _jac_log_rank_stat_smooth(
 
     return 2 / N ** 2 * S @ rank_stat # (p,), car S est symétrique (car en réalité une hessienne), pas besoin de transposer
 
-def callback(*, intermediate_result):
-    print(intermediate_result.fun)
 
 class SemiParametricAcceleratedFailureTime:
     """
@@ -917,7 +917,7 @@ class SemiParametricAcceleratedFailureTime:
     ) -> SemiParamAFTFittingResults:
         # Init covar_effect
         self.covar_effect = LinearCovarEffect(
-            (None,) * np.atleast_2d(np.asarray(covar, dtype=np.float64)).shape[-1]
+            (None,) * reshape_1d_arg(np.asarray(covar, dtype=np.float64)).shape[-1]
         )
 
         # Build training_data
@@ -926,7 +926,7 @@ class SemiParametricAcceleratedFailureTime:
         )
 
         # Set optimizer and minimize
-        x0 = kwargs.pop("x0", np.zeros(covar.shape[1], dtype=np.float64))
+        x0 = kwargs.pop("x0", np.zeros(self._training_data.covar.shape[1], dtype=np.float64))
         method = kwargs.pop("method", "L-BFGS-B")
         jac = kwargs.pop("jac", self.jac_log_rank_stat)
         bounds = kwargs.pop("bounds", None)
@@ -938,7 +938,6 @@ class SemiParametricAcceleratedFailureTime:
             method=method,
             jac=jac,
             bounds=bounds,
-            callback=callback,
             **kwargs
         )
 
@@ -951,49 +950,6 @@ class SemiParametricAcceleratedFailureTime:
             optimal_params=optimal_params,
             log_rank_stat=optimizer.fun
         )
-
-
-if __name__ == "__main__":
-    from pathlib import Path
-    import pandas as pd
-    import datetime
-
-    # Données chaines d'isolateur
-    relife_csv_datapath = Path(r"D:\Projets\RTE\ReLife\relife\relife\data\csv")
-    time, event, entry, *args = np.loadtxt(relife_csv_datapath / "insulator_string.csv", delimiter=",", skiprows=1,
-                                           unpack=True)
-    covar = np.column_stack(args)
-
-    # Test fit
-    model = SemiParametricAcceleratedFailureTime()
-
-    # Init covar_effect
-    N = len(covar)
-
-    model.covar_effect = LinearCovarEffect(
-        (None,) * np.atleast_2d(np.asarray(covar, dtype=np.float64)).shape[-1]
-    )
-
-    # Build training_data
-    entry = np.maximum(entry, 0.5)
-    model._training_data = SemiParamAFTData(
-        time=np.float64(time[:N]), covar=np.float64(covar[:N]), event=np.float64(event[:N]), entry=np.float64(entry[:N])
-    )
-
-    model._s2 = 1
-    start = datetime.datetime.now()
-    print(model.log_rank_stat(np.zeros(3)))
-    end1 = datetime.datetime.now()
-    print(end1 - start)
-    print(model.jac_log_rank_stat(np.zeros(3)))
-    end2 = datetime.datetime.now()
-    print(end2 - end1)
-    model.fit(
-        time=time[:N], covar=covar[:N], event=event[:N], entry=entry[:N], s2=1
-    )
-    print(model.params)
-    end3 = datetime.datetime.now()
-    print(end3 - end2)
 
 
 
