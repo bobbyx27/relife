@@ -799,6 +799,62 @@ def _log_rank_stat_smooth(
     else:
         return np.sum(S ** 2) / N ** 2  # On nullifie les composantes du gradient par minimisation scalaire de sa norme L2
 
+
+def _log_rank_stat_smooth_block(
+    covar,
+    event,
+    eps_time,
+    eps_entry,
+    s2=1.0,
+    block_size=256,
+    return_grad=False
+):
+    N, p = covar.shape
+    S = np.zeros(p, dtype=np.float64)
+
+    event = np.squeeze(event)
+    eps_time = np.squeeze(eps_time)
+    eps_entry = np.squeeze(eps_entry)
+
+    for start in range(0, N, block_size):
+        end = min(start + block_size, N)
+
+        # Block of i's
+        Xi = covar[start:end]                      # (B, p)
+        ei = eps_time[start:end]                   # (B,)
+        event_i = event[start:end]                 # (B,)
+
+        # Pairwise differences with all j
+        X_diff = Xi[:, None, :] - covar[None, :, :]   # (B, N, p)
+        sq_norm = np.sum(X_diff**2, axis=2)           # (B, N)
+
+        mask = sq_norm > 0
+
+        rij_star = np.sqrt((2 / N) * s2 * sq_norm)
+        rij_star[~mask] = 1.0  # avoid division by zero
+
+        # Broadcast eps differences
+        eps_time_diff = eps_time[None, :] - ei[:, None]     # (B, N)
+        eps_entry_diff = eps_entry[None, :] - ei[:, None]   # (B, N)
+
+        eps_time_norm = eps_time_diff / rij_star
+        eps_entry_norm = eps_entry_diff / rij_star
+
+        phi = erf(eps_time_norm) - erf(eps_entry_norm)
+        phi[~mask] = 0.0
+
+        # Apply event mask (only rows where event[i] == 1)
+        phi *= event_i[:, None]
+
+        # Accumulate
+        S += np.sum(X_diff * phi[:, :, None], axis=(0, 1))
+
+    if return_grad:
+        return S
+    else:
+        return np.sum(S**2) / N**2
+
+
 #@njit(fastmath=False, parallel=False)
 def _jac_log_rank_stat_smooth(
         covar: NDArray[np.float64],
@@ -834,6 +890,63 @@ def _jac_log_rank_stat_smooth(
     rank_stat = _log_rank_stat_smooth(covar, event, eps_time, eps_entry, s2=s2, return_grad=True)
 
     return 2 / N ** 2 * S @ rank_stat # (p,), car S est symétrique (car en réalité une hessienne), pas besoin de transposer
+
+
+def _jac_log_rank_stat_smooth_block(
+    covar,
+    event,
+    eps_time,
+    eps_entry,
+    s2=1.0,
+    block_size=128,
+):
+    N, p = covar.shape
+    S = np.zeros((p, p), dtype=np.float64)
+
+    cst = (2 / N) * s2
+
+    for start in range(0, N, block_size):
+        end = min(start + block_size, N)
+
+        Xi = covar[start:end]                  # (B, p)
+        ei = eps_time[start:end]               # (B,)
+        event_i = event[start:end]             # (B,)
+
+        # Pairwise
+        X_diff = Xi[:, None, :] - covar[None, :, :]   # (B, N, p)
+        sq_norm = np.sum(X_diff**2, axis=2)           # (B, N)
+
+        mask = sq_norm > 0
+
+        rij_star = np.sqrt(cst * sq_norm)
+        rij_star[~mask] = 1.0
+
+        # eps terms
+        eps_time_diff = eps_time[None, :] - ei[:, None]
+        eps_entry_diff = eps_entry[None, :] - ei[:, None]
+
+        eps_time_norm = -(eps_time_diff**2) / (rij_star**2)
+        eps_entry_norm = -(eps_entry_diff**2) / (rij_star**2)
+
+        exp_diff = (np.exp(eps_time_norm) - np.exp(eps_entry_norm)) / rij_star
+        exp_diff[~mask] = 0.0
+
+        exp_diff *= event_i[:, None]
+
+        # Outer products (no k-loop!)
+        X_outer = X_diff[:, :, :, None] * X_diff[:, :, None, :]   # (B, N, p, p)
+
+        S += (2 / np.sqrt(np.pi)) * np.sum(
+            X_outer * exp_diff[:, :, None, None],
+            axis=(0, 1)
+        )
+
+    # reuse gradient (blockwise version ideally)
+    rank_stat = _log_rank_stat_smooth_block(
+        covar, event, eps_time, eps_entry, s2=s2, return_grad=True
+    )
+
+    return (2 / N**2) * (S @ rank_stat)
 
 
 class SemiParametricAcceleratedFailureTime:
