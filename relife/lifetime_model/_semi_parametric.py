@@ -816,38 +816,42 @@ def _log_rank_stat_smooth_block(
     eps_time = np.squeeze(eps_time)
     eps_entry = np.squeeze(eps_entry)
 
-    for start in range(0, N, block_size):
-        end = min(start + block_size, N)
+    idx = np.where(event == 1)[0]
+    covar_i = covar[idx]
+    eps_i = eps_time[idx]
+    M = len(covar_i)
+
+    cst = np.sqrt((2 / N) * s2)
+
+    for start in range(0, M, block_size):
+        end = min(start + block_size, M)
 
         # Block of i's
-        Xi = covar[start:end]                      # (B, p)
-        ei = eps_time[start:end]                   # (B,)
-        event_i = event[start:end]                 # (B,)
+        Xi = covar_i[start:end]                      # (B, p)
+        ei = eps_i[start:end]                   # (B,)
 
-        # Pairwise differences with all j
-        X_diff = Xi[:, None, :] - covar[None, :, :]   # (B, N, p)
-        sq_norm = np.sum(X_diff**2, axis=2)           # (B, N)
+        # --- compute sq_norm WITHOUT (B,N,p)
+        Xi_sq = np.sum(Xi ** 2, axis=1, keepdims=True)  # (B,1)
+        Xj_sq = np.sum(covar ** 2, axis=1)  # (N,)
+        cross = Xi @ covar.T  # (B,N)
+        sq_norm = Xi_sq + Xj_sq - 2 * cross  # (B,N)
 
         mask = sq_norm > 0
-
-        rij_star = np.sqrt((2 / N) * s2 * sq_norm)
-        rij_star[~mask] = 1.0  # avoid division by zero
+        rij = cst * np.sqrt(sq_norm)
+        rij[~mask] = 1.0  # avoid division by zero
 
         # Broadcast eps differences
         eps_time_diff = eps_time[None, :] - ei[:, None]     # (B, N)
         eps_entry_diff = eps_entry[None, :] - ei[:, None]   # (B, N)
-
-        eps_time_norm = eps_time_diff / rij_star
-        eps_entry_norm = eps_entry_diff / rij_star
-
-        phi = erf(eps_time_norm) - erf(eps_entry_norm)
+        phi = erf(eps_time_diff / rij) - erf(eps_entry_diff / rij)
         phi[~mask] = 0.0
 
-        # Apply event mask (only rows where event[i] == 1)
-        phi *= event_i[:, None]
+        # --- NOW THE MAGIC (no X_diff)
+        row_sum = np.sum(phi, axis=1)  # (B,)
+        col_sum = np.sum(phi, axis=0)  # (N,)
 
-        # Accumulate
-        S += np.sum(X_diff * phi[:, :, None], axis=(0, 1))
+        S += Xi.T @ row_sum  # (p,)
+        S -= covar.T @ col_sum  # (p,)
 
     if return_grad:
         return S
