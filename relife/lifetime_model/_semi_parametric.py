@@ -752,6 +752,7 @@ def _log_rank_stat(
         eps_time: NDArray[np.float64],
         eps_entry: NDArray[np.float64]
 ) -> np.float64:
+    # Not differentiable. Useless in practical numerical optimization
 
     N = len(covar)
     S = np.zeros(covar.shape[1], dtype=np.float64)
@@ -819,8 +820,9 @@ def _log_rank_stat_smooth_block(
     idx = np.where(event == 1)[0]
     covar_i = covar[idx]
     eps_i = eps_time[idx]
-    M = len(covar_i)
+    M = len(idx)
 
+    X_sq = np.sum(covar ** 2, axis=1)  # (N,)
     cst = np.sqrt((2 / N) * s2)
 
     for start in range(0, M, block_size):
@@ -832,9 +834,8 @@ def _log_rank_stat_smooth_block(
 
         # --- compute sq_norm WITHOUT (B,N,p)
         Xi_sq = np.sum(Xi ** 2, axis=1, keepdims=True)  # (B,1)
-        Xj_sq = np.sum(covar ** 2, axis=1)  # (N,)
         cross = Xi @ covar.T  # (B,N)
-        sq_norm = Xi_sq + Xj_sq - 2 * cross  # (B,N)
+        sq_norm = Xi_sq + X_sq - 2 * cross  # (B,N)
 
         mask = sq_norm > 0
         rij = cst * np.sqrt(sq_norm)
@@ -907,35 +908,39 @@ def _jac_log_rank_stat_smooth_block(
     N, p = covar.shape
     S = np.zeros((p, p), dtype=np.float64)
 
-    cst = (2 / N) * s2
+    event = np.squeeze(event)
+    eps_time = np.squeeze(eps_time)
+    eps_entry = np.squeeze(eps_entry)
 
-    for start in range(0, N, block_size):
-        end = min(start + block_size, N)
+    idx = np.where(event == 1)[0]
+    covar_i = covar[idx]
+    eps_i = eps_time[idx]
+    M = len(idx)
 
-        Xi = covar[start:end]                  # (B, p)
-        ei = eps_time[start:end]               # (B,)
-        event_i = event[start:end]             # (B,)
+    cst = np.sqrt((2 / N) * s2)
+
+    for start in range(0, M, block_size):
+        end = min(start + block_size, M)
+
+        # Block of i's
+        Xi = covar_i[start:end]  # (B, p)
+        ei = eps_i[start:end]  # (B,)
 
         # Pairwise
         X_diff = Xi[:, None, :] - covar[None, :, :]   # (B, N, p)
         sq_norm = np.sum(X_diff**2, axis=2)           # (B, N)
 
         mask = sq_norm > 0
-
-        rij_star = np.sqrt(cst * sq_norm)
+        rij_star = cst * np.sqrt(sq_norm)
         rij_star[~mask] = 1.0
 
         # eps terms
         eps_time_diff = eps_time[None, :] - ei[:, None]
         eps_entry_diff = eps_entry[None, :] - ei[:, None]
-
         eps_time_norm = -(eps_time_diff**2) / (rij_star**2)
         eps_entry_norm = -(eps_entry_diff**2) / (rij_star**2)
-
         exp_diff = (np.exp(eps_time_norm) - np.exp(eps_entry_norm)) / rij_star
         exp_diff[~mask] = 0.0
-
-        exp_diff *= event_i[:, None]
 
         # Outer products (no k-loop!)
         X_outer = X_diff[:, :, :, None] * X_diff[:, :, None, :]   # (B, N, p, p)
@@ -951,6 +956,82 @@ def _jac_log_rank_stat_smooth_block(
     )
 
     return (2 / N**2) * (S @ rank_stat)
+
+
+def _jac_log_rank_stat_smooth_block_bis(
+    covar,
+    event,
+    eps_time,
+    eps_entry,
+    s2=1.0,
+    block_size=128,
+):
+    # TODO: fix, I don't get the same results as in _jac_log_rank_stat_smooth
+
+    N, p = covar.shape
+    S = np.zeros((p, p), dtype=np.float64)
+
+    event = np.squeeze(event)
+    eps_time = np.squeeze(eps_time)
+    eps_entry = np.squeeze(eps_entry)
+
+    # Filter events early
+    idx = np.where(event == 1)[0]
+    covar_i = covar[idx]
+    eps_i = eps_time[idx]
+    M = len(idx)
+
+    # Precompute norms
+    X_sq = np.sum(covar ** 2, axis=1)
+    cst = np.sqrt((2 / N) * s2)
+
+    # Accumulate column weights globally
+    col_sum_total = np.zeros(N)
+
+    for start in range(0, M, block_size):
+        end = min(start + block_size, M)
+
+        Xi = covar_i[start:end]  # (B,p)
+        ei = eps_i[start:end]  # (B,)
+
+        # --- sq_norm via dot product trick
+        Xi_sq = np.sum(Xi ** 2, axis=1, keepdims=True)
+        cross = Xi @ covar.T  # (B,N)
+        sq_norm = Xi_sq + X_sq - 2 * cross
+
+        mask = sq_norm > 0
+        rij = cst * np.sqrt(sq_norm)
+        rij[~mask] = 1.0
+
+        # --- eps terms
+        eps_time_diff = eps_time[None, :] - ei[:, None]
+        eps_entry_diff = eps_entry[None, :] - ei[:, None]
+        exp_time = np.exp(-(eps_time_diff ** 2) / (rij ** 2))
+        exp_entry = np.exp(-(eps_entry_diff ** 2) / (rij ** 2))
+        w = (exp_time - exp_entry) / rij
+        w[~mask] = 0.0
+        w *= (2 / np.sqrt(np.pi))
+
+        # --- sums
+        row_sum = np.sum(w, axis=1)  # (B,)
+        col_sum = np.sum(w, axis=0)  # (N,)
+        col_sum_total += col_sum
+
+        # --- term 1: sum_i r_i x_i x_i^T
+        # (B,p) weighted outer products
+        S += (Xi.T * row_sum) @ Xi
+        # --- cross term: sum_{i,j} w_ij x_i x_j^T
+        S -= Xi.T @ w @ covar
+
+    # --- term 2: sum_j c_j x_j x_j^T
+    S += (covar.T * col_sum_total) @ covar
+
+    # --- symmetric counterpart already handled via algebra
+    rank_stat = _log_rank_stat_smooth_block(
+        covar, event, eps_time, eps_entry, s2=s2, return_grad=True
+    )
+
+    return (2 / N ** 2) * (S @ rank_stat)
 
 
 class SemiParametricAcceleratedFailureTime:
