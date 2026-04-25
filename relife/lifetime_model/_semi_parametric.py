@@ -802,13 +802,13 @@ def _log_rank_stat_smooth(
 
 
 def _log_rank_stat_smooth_block(
-    covar,
-    event,
-    eps_time,
-    eps_entry,
-    s2=1.0,
-    block_size=256,
-    return_grad=False
+    covar: NDArray[np.float64],
+    event: NDArray[np.float64],
+    eps_time: NDArray[np.float64],
+    eps_entry: NDArray[np.float64],
+    s2: float = 1.0,
+    block_size: int = 256,
+    return_grad: bool = False
 ):
     N, p = covar.shape
     S = np.zeros(p, dtype=np.float64)
@@ -898,75 +898,13 @@ def _jac_log_rank_stat_smooth(
 
 
 def _jac_log_rank_stat_smooth_block(
-    covar,
-    event,
-    eps_time,
-    eps_entry,
-    s2=1.0,
-    block_size=128,
+    covar: NDArray[np.float64],
+    event: NDArray[np.float64],
+    eps_time: NDArray[np.float64],
+    eps_entry: NDArray[np.float64],
+    s2: float = 1.0,
+    block_size: int = 128,
 ):
-    N, p = covar.shape
-    S = np.zeros((p, p), dtype=np.float64)
-
-    event = np.squeeze(event)
-    eps_time = np.squeeze(eps_time)
-    eps_entry = np.squeeze(eps_entry)
-
-    idx = np.where(event == 1)[0]
-    covar_i = covar[idx]
-    eps_i = eps_time[idx]
-    M = len(idx)
-
-    cst = np.sqrt((2 / N) * s2)
-
-    for start in range(0, M, block_size):
-        end = min(start + block_size, M)
-
-        # Block of i's
-        Xi = covar_i[start:end]  # (B, p)
-        ei = eps_i[start:end]  # (B,)
-
-        # Pairwise
-        X_diff = Xi[:, None, :] - covar[None, :, :]   # (B, N, p)
-        sq_norm = np.sum(X_diff**2, axis=2)           # (B, N)
-
-        mask = sq_norm > 0
-        rij_star = cst * np.sqrt(sq_norm)
-        rij_star[~mask] = 1.0
-
-        # eps terms
-        eps_time_diff = eps_time[None, :] - ei[:, None]
-        eps_entry_diff = eps_entry[None, :] - ei[:, None]
-        eps_time_norm = -(eps_time_diff**2) / (rij_star**2)
-        eps_entry_norm = -(eps_entry_diff**2) / (rij_star**2)
-        exp_diff = (np.exp(eps_time_norm) - np.exp(eps_entry_norm)) / rij_star
-        exp_diff[~mask] = 0.0
-
-        # Outer products (no k-loop!)
-        X_outer = X_diff[:, :, :, None] * X_diff[:, :, None, :]   # (B, N, p, p)
-
-        S += (2 / np.sqrt(np.pi)) * np.sum(
-            X_outer * exp_diff[:, :, None, None],
-            axis=(0, 1)
-        )
-
-    # reuse gradient (blockwise version ideally)
-    rank_stat = _log_rank_stat_smooth_block(
-        covar, event, eps_time, eps_entry, s2=s2, return_grad=True
-    )
-
-    return (2 / N**2) * (S @ rank_stat)
-
-
-def _jac_log_rank_stat_smooth_block_bis(
-    covar,
-    event,
-    eps_time,
-    eps_entry,
-    s2=1.0,
-    block_size=128,
-):
-    # TODO: fix, I don't get the same results as in _jac_log_rank_stat_smooth
 
     N, p = covar.shape
     S = np.zeros((p, p), dtype=np.float64)
@@ -1022,6 +960,8 @@ def _jac_log_rank_stat_smooth_block_bis(
         S += (Xi.T * row_sum) @ Xi
         # --- cross term: sum_{i,j} w_ij x_i x_j^T
         S -= Xi.T @ w @ covar
+        # --- cross term: sum_{i,j} w_ij x_j x_i^T
+        S -= covar.T @ w.T @ Xi
 
     # --- term 2: sum_j c_j x_j x_j^T
     S += (covar.T * col_sum_total) @ covar
@@ -1050,10 +990,12 @@ class SemiParametricAcceleratedFailureTime:
     _training_data: SemiParamAFTData | None
     _sf: NDArray[np.void] | None
     _s2: np.float64 | None
+    _block_size: int | None
 
     def __init__(self):
         self._sf = None
         self._s2 = None
+        self._block_size = None
         self._training_data = None
         self.fitting_results = None
         self.covar_effect = None
@@ -1094,7 +1036,12 @@ class SemiParametricAcceleratedFailureTime:
         covar = self._training_data.covar
         event = self._training_data.event
 
-        return _log_rank_stat_smooth(covar, event, eps_time, eps_entry, s2=self._s2)
+        if self._block_size is None:
+            return _log_rank_stat_smooth(covar, event, eps_time, eps_entry,
+                                               s2=self._s2)
+        else:
+            return _log_rank_stat_smooth_block(covar, event, eps_time, eps_entry,
+                                               s2=self._s2, block_size=self._block_size)
 
     @update_params
     def jac_log_rank_stat(self, params: NDArray[np.float64]) -> np.float64:
@@ -1103,7 +1050,12 @@ class SemiParametricAcceleratedFailureTime:
         covar = self._training_data.covar
         event = self._training_data.event
 
-        return _jac_log_rank_stat_smooth(covar, event, eps_time, eps_entry, s2=self._s2)
+        if self._block_size is None:
+            return _jac_log_rank_stat_smooth(covar, event, eps_time, eps_entry,
+                                                   s2=self._s2)
+        else:
+            return _jac_log_rank_stat_smooth_block(covar, event, eps_time, eps_entry,
+                                                   s2=self._s2, block_size=self._block_size)
 
     def fit(
             self,
@@ -1129,6 +1081,7 @@ class SemiParametricAcceleratedFailureTime:
         jac = kwargs.pop("jac", self.jac_log_rank_stat)
         bounds = kwargs.pop("bounds", None)
         self._s2 = kwargs.pop("s2", 1.)
+        self._block_size = kwargs.pop("block_size", None)
 
         optimizer = minimize(
             self.log_rank_stat,
