@@ -877,11 +877,11 @@ def _log_rank_stat_smooth_block_iter_profiling(
     eps_time = np.squeeze(eps_time)
     eps_time_k_1 = np.squeeze(eps_time_k_1)
     eps_entry_k_1 = np.squeeze(eps_entry_k_1)
-    risk_set_mask = eps_entry_k_1 <= eps_time_k_1
 
     idx = np.where(event == 1)[0]
     covar_i = covar[idx]
     eps_i = eps_time[idx]
+    eps_i_k_1 = eps_time_k_1[idx]
     M = len(idx)
 
     X_sq = np.sum(covar ** 2, axis=1)  # (N,)
@@ -893,6 +893,7 @@ def _log_rank_stat_smooth_block_iter_profiling(
         # Block of i's
         Xi = covar_i[start:end]                      # (B, p)
         ei = eps_i[start:end]                   # (B,)
+        eik1 = eps_i_k_1[start:end]  # (B,)
 
         # --- compute sq_norm WITHOUT (B,N,p)
         Xi_sq = np.sum(Xi ** 2, axis=1, keepdims=True)  # (B,1)
@@ -900,7 +901,7 @@ def _log_rank_stat_smooth_block_iter_profiling(
         sq_norm = Xi_sq + X_sq - 2 * cross  # (B,N)
 
         mask = sq_norm > 0
-        mask &= risk_set_mask        # add lower truncation as fixed risk set mask
+        mask &= eps_entry_k_1[None, :] <= eik1[:, None]
         rij = cst * np.sqrt(sq_norm)
         rij[~mask] = 1.0  # avoid division by zero
 
@@ -1053,12 +1054,12 @@ def _jac_log_rank_stat_smooth_block_iter_profiling(
     eps_time = np.squeeze(eps_time)
     eps_time_k_1 = np.squeeze(eps_time_k_1)
     eps_entry_k_1 = np.squeeze(eps_entry_k_1)
-    risk_set_mask = eps_entry_k_1 <= eps_time_k_1
 
     # Filter events early
     idx = np.where(event == 1)[0]
     covar_i = covar[idx]
     eps_i = eps_time[idx]
+    eps_i_k_1 = eps_time_k_1[idx]
     M = len(idx)
 
     # Precompute norms
@@ -1073,6 +1074,7 @@ def _jac_log_rank_stat_smooth_block_iter_profiling(
 
         Xi = covar_i[start:end]  # (B,p)
         ei = eps_i[start:end]  # (B,)
+        eik1 = eps_i_k_1[start:end] # (B,)
 
         # --- sq_norm via dot product trick
         Xi_sq = np.sum(Xi ** 2, axis=1, keepdims=True)
@@ -1080,7 +1082,7 @@ def _jac_log_rank_stat_smooth_block_iter_profiling(
         sq_norm = Xi_sq + X_sq - 2 * cross
 
         mask = sq_norm > 0
-        mask &= risk_set_mask  # add lower truncation as fixed risk set mask
+        mask &= eps_entry_k_1[None, :] <= eik1[:, None]
         rij = cst * np.sqrt(sq_norm)
         rij[~mask] = 1.0
 
@@ -1310,7 +1312,7 @@ if __name__ == "__main__":
     simulation_case_study_kwargs = {
         "nseed": 4,
         "N": 1000,
-        "weibull_shape": 0.5,
+        "weibull_shape": 1,
         "truncation_exponential_scale": 0.25,
         "params": np.array([1., 2.3])
     }
@@ -1324,7 +1326,7 @@ if __name__ == "__main__":
 
     model.fit(
         time=time[:N], covar=covar[:N], event=event[:N], entry=entry[:N] if entry is not None else None,
-        block_size=50, nb_profiling_iter=5
+        block_size=50, nb_profiling_iter=10
     )
     print(model.params)
 
