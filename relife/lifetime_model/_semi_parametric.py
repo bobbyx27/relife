@@ -860,6 +860,68 @@ def _log_rank_stat_smooth_block(
         return np.sum(S**2) / N**2
 
 
+def _log_rank_stat_smooth_block_iter_profiling(
+    covar: NDArray[np.float64],
+    event: NDArray[np.float64],
+    eps_time: NDArray[np.float64],
+    eps_time_k_1: NDArray[np.float64],
+    eps_entry_k_1: NDArray[np.float64],
+    s2: float = 1.0,
+    block_size: int = 256,
+    return_grad: bool = False
+):
+    N, p = covar.shape
+    S = np.zeros(p, dtype=np.float64)
+
+    event = np.squeeze(event)
+    eps_time = np.squeeze(eps_time)
+    eps_time_k_1 = np.squeeze(eps_time_k_1)
+    eps_entry_k_1 = np.squeeze(eps_entry_k_1)
+    risk_set_mask = eps_entry_k_1 <= eps_time_k_1
+
+    idx = np.where(event == 1)[0]
+    covar_i = covar[idx]
+    eps_i = eps_time[idx]
+    M = len(idx)
+
+    X_sq = np.sum(covar ** 2, axis=1)  # (N,)
+    cst = np.sqrt((2 / N) * s2)
+
+    for start in range(0, M, block_size):
+        end = min(start + block_size, M)
+
+        # Block of i's
+        Xi = covar_i[start:end]                      # (B, p)
+        ei = eps_i[start:end]                   # (B,)
+
+        # --- compute sq_norm WITHOUT (B,N,p)
+        Xi_sq = np.sum(Xi ** 2, axis=1, keepdims=True)  # (B,1)
+        cross = Xi @ covar.T  # (B,N)
+        sq_norm = Xi_sq + X_sq - 2 * cross  # (B,N)
+
+        mask = sq_norm > 0
+        mask &= risk_set_mask        # add lower truncation as fixed risk set mask
+        rij = cst * np.sqrt(sq_norm)
+        rij[~mask] = 1.0  # avoid division by zero
+
+        # Broadcast eps differences
+        eps_time_diff = eps_time[None, :] - ei[:, None]     # (B, N)
+        phi = erf(eps_time_diff / rij)    # remove smoothing of lower truncation
+        phi[~mask] = 0.0
+
+        # --- NOW THE MAGIC (no X_diff)
+        row_sum = np.sum(phi, axis=1)  # (B,)
+        col_sum = np.sum(phi, axis=0)  # (N,)
+
+        S += Xi.T @ row_sum  # (p,)
+        S -= covar.T @ col_sum  # (p,)
+
+    if return_grad:
+        return S
+    else:
+        return np.sum(S**2) / N**2
+
+
 #@njit(fastmath=False, parallel=False)
 def _jac_log_rank_stat_smooth(
         covar: NDArray[np.float64],
@@ -974,6 +1036,85 @@ def _jac_log_rank_stat_smooth_block(
     return (2 / N ** 2) * (S @ rank_stat)
 
 
+def _jac_log_rank_stat_smooth_block_iter_profiling(
+    covar: NDArray[np.float64],
+    event: NDArray[np.float64],
+    eps_time: NDArray[np.float64],
+    eps_time_k_1: NDArray[np.float64],
+    eps_entry_k_1: NDArray[np.float64],
+    s2: float = 1.0,
+    block_size: int = 128,
+):
+
+    N, p = covar.shape
+    S = np.zeros((p, p), dtype=np.float64)
+
+    event = np.squeeze(event)
+    eps_time = np.squeeze(eps_time)
+    eps_time_k_1 = np.squeeze(eps_time_k_1)
+    eps_entry_k_1 = np.squeeze(eps_entry_k_1)
+    risk_set_mask = eps_entry_k_1 <= eps_time_k_1
+
+    # Filter events early
+    idx = np.where(event == 1)[0]
+    covar_i = covar[idx]
+    eps_i = eps_time[idx]
+    M = len(idx)
+
+    # Precompute norms
+    X_sq = np.sum(covar ** 2, axis=1)
+    cst = np.sqrt((2 / N) * s2)
+
+    # Accumulate column weights globally
+    col_sum_total = np.zeros(N)
+
+    for start in range(0, M, block_size):
+        end = min(start + block_size, M)
+
+        Xi = covar_i[start:end]  # (B,p)
+        ei = eps_i[start:end]  # (B,)
+
+        # --- sq_norm via dot product trick
+        Xi_sq = np.sum(Xi ** 2, axis=1, keepdims=True)
+        cross = Xi @ covar.T  # (B,N)
+        sq_norm = Xi_sq + X_sq - 2 * cross
+
+        mask = sq_norm > 0
+        mask &= risk_set_mask  # add lower truncation as fixed risk set mask
+        rij = cst * np.sqrt(sq_norm)
+        rij[~mask] = 1.0
+
+        # --- eps terms
+        eps_time_diff = eps_time[None, :] - ei[:, None]
+        exp_time = np.exp(-(eps_time_diff ** 2) / (rij ** 2))
+        w = exp_time / rij
+        w[~mask] = 0.0
+        w *= (2 / np.sqrt(np.pi))
+
+        # --- sums
+        row_sum = np.sum(w, axis=1)  # (B,)
+        col_sum = np.sum(w, axis=0)  # (N,)
+        col_sum_total += col_sum
+
+        # --- term 1: sum_i r_i x_i x_i^T
+        # (B,p) weighted outer products
+        S += (Xi.T * row_sum) @ Xi
+        # --- cross term: sum_{i,j} w_ij x_i x_j^T
+        S -= Xi.T @ w @ covar
+        # --- cross term: sum_{i,j} w_ij x_j x_i^T
+        S -= covar.T @ w.T @ Xi
+
+    # --- term 2: sum_j c_j x_j x_j^T
+    S += (covar.T * col_sum_total) @ covar
+
+    # --- symmetric counterpart already handled via algebra
+    rank_stat = _log_rank_stat_smooth_block_iter_profiling(
+        covar, event, eps_time, eps_time_k_1=eps_time_k_1, eps_entry_k_1=eps_entry_k_1, s2=s2, return_grad=True
+    )
+
+    return (2 / N ** 2) * (S @ rank_stat)
+
+
 class SemiParametricAcceleratedFailureTime:
     """
     Class for semi-parametric, accelerated failure time, model
@@ -991,11 +1132,15 @@ class SemiParametricAcceleratedFailureTime:
     _sf: NDArray[np.void] | None
     _s2: np.float64 | None
     _block_size: int | None
+    _eps_time_k_1: NDArray[np.float64] | None
+    _eps_entry_k_1: NDArray[np.float64] | None
 
     def __init__(self):
         self._sf = None
         self._s2 = None
         self._block_size = None
+        self._eps_time_k_1 = None
+        self._eps_entry_k_1 = None
         self._training_data = None
         self.fitting_results = None
         self.covar_effect = None
@@ -1037,11 +1182,18 @@ class SemiParametricAcceleratedFailureTime:
         event = self._training_data.event
 
         if self._block_size is None:
+            if self._eps_time_k_1 is not None:
+                raise NotImplementedError
             return _log_rank_stat_smooth(covar, event, eps_time, eps_entry,
                                                s2=self._s2)
         else:
-            return _log_rank_stat_smooth_block(covar, event, eps_time, eps_entry,
-                                               s2=self._s2, block_size=self._block_size)
+            if self._eps_time_k_1 is None:
+                return _log_rank_stat_smooth_block(covar, event, eps_time, eps_entry,
+                                                   s2=self._s2, block_size=self._block_size)
+            else:
+                return _log_rank_stat_smooth_block_iter_profiling(covar, event, eps_time,
+                                                                 eps_time_k_1=self._eps_time_k_1, eps_entry_k_1=self._eps_entry_k_1,
+                                                                 s2=self._s2, block_size=self._block_size)
 
     @update_params
     def jac_log_rank_stat(self, params: NDArray[np.float64]) -> np.float64:
@@ -1051,11 +1203,18 @@ class SemiParametricAcceleratedFailureTime:
         event = self._training_data.event
 
         if self._block_size is None:
+            if self._eps_time_k_1 is not None:
+                raise NotImplementedError
             return _jac_log_rank_stat_smooth(covar, event, eps_time, eps_entry,
                                                    s2=self._s2)
         else:
-            return _jac_log_rank_stat_smooth_block(covar, event, eps_time, eps_entry,
-                                                   s2=self._s2, block_size=self._block_size)
+            if self._eps_time_k_1 is None:
+                return _jac_log_rank_stat_smooth_block(covar, event, eps_time, eps_entry,
+                                                       s2=self._s2, block_size=self._block_size)
+            else:
+                return _jac_log_rank_stat_smooth_block_iter_profiling(covar, event, eps_time,
+                                                                 eps_time_k_1=self._eps_time_k_1, eps_entry_k_1=self._eps_entry_k_1,
+                                                                 s2=self._s2, block_size=self._block_size)
 
     def fit(
             self,
@@ -1082,15 +1241,28 @@ class SemiParametricAcceleratedFailureTime:
         bounds = kwargs.pop("bounds", None)
         self._s2 = kwargs.pop("s2", 1.)
         self._block_size = kwargs.pop("block_size", None)
+        nb_profiling_iter = kwargs.pop("nb_profiling_iter", 0)
+        if nb_profiling_iter > 0:
+            self.covar_effect.params = x0
+            self._eps_time_k_1 = self._log_time_residuals()
+            self._eps_entry_k_1 = self._log_entry_residuals()
 
-        optimizer = minimize(
-            self.log_rank_stat,
-            x0=x0,
-            method=method,
-            jac=jac,
-            bounds=bounds,
-            **kwargs
-        )
+        iter = 0
+        while iter <= nb_profiling_iter:
+            optimizer = minimize(
+                self.log_rank_stat,
+                x0=x0,
+                method=method,
+                jac=jac,
+                bounds=bounds,
+                **kwargs
+            )
+            iter += 1
+            if nb_profiling_iter > 0:
+                self.covar_effect.params = optimizer.x
+                self._eps_time_k_1 = self._log_time_residuals()
+                self._eps_entry_k_1 = self._log_entry_residuals()
+
 
         # Set output
         optimal_params = np.copy(optimizer.x)
@@ -1103,6 +1275,58 @@ class SemiParametricAcceleratedFailureTime:
         )
 
 
+
+if __name__ == "__main__":
+
+    def get_simulated_dataset(
+            weibull_shape: float,
+            truncation_exponential_scale: float | None,
+            params: np.ndarray,
+            N: int,
+            nseed: int
+    ):
+        from numpy.random import seed, binomial, weibull, exponential, normal, uniform, choice
+
+        assert (params.ndim == 1) and (len(params) == 2), "params must be a vector of 2 parameters"
+        seed(nseed)
+        covar1 = binomial(n=1, p=0.5, size=N)
+        covar2 = normal(scale=0.1, size=N)
+        covar = np.concat((covar1[:, None], covar2[:, None]), axis=1)
+        g = np.exp(params[0] * covar1 + params[1] * covar2)
+        yy = g * weibull(a=weibull_shape, size=N)
+        cc = exponential(size=N)
+        time = np.minimum(yy, cc)
+        event = yy <= cc
+        if truncation_exponential_scale is None:
+            tr = None
+            entry = None
+        else:
+            assert truncation_exponential_scale < 1, "you must ensure truncation parameterization is consistent with right-censoring one"
+            tr = exponential(scale=truncation_exponential_scale, size=N)
+            entry = np.minimum(time, tr)
+        return time, covar, event, entry, yy, cc, tr, params
+
+    # Plot theoretical lifetime and right-censoring time sample distributions
+    simulation_case_study_kwargs = {
+        "nseed": 4,
+        "N": 1000,
+        "weibull_shape": 0.5,
+        "truncation_exponential_scale": 0.25,
+        "params": np.array([1., 2.3])
+    }
+
+    time, covar, event, entry, lifetime, right_censoring, left_truncature, _ = get_simulated_dataset(
+        **simulation_case_study_kwargs)
+
+    # Test fit
+    model = SemiParametricAcceleratedFailureTime()
+    N = len(covar)
+
+    model.fit(
+        time=time[:N], covar=covar[:N], event=event[:N], entry=entry[:N] if entry is not None else None,
+        block_size=50, nb_profiling_iter=5
+    )
+    print(model.params)
 
 
 
