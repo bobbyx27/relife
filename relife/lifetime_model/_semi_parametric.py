@@ -907,7 +907,7 @@ def _log_rank_stat_smooth_block_iter_profiling(
 
         # Broadcast eps differences
         eps_time_diff = eps_time[None, :] - ei[:, None]     # (B, N)
-        phi = erf(eps_time_diff / rij)    # remove smoothing of lower truncation
+        phi = 1 + erf(eps_time_diff / rij)    # remove smoothing of lower truncation
         phi[~mask] = 0.0
 
         # --- NOW THE MAGIC (no X_diff)
@@ -1326,7 +1326,7 @@ if __name__ == "__main__":
 
     model.fit(
         time=time[:N], covar=covar[:N], event=event[:N], entry=entry[:N] if entry is not None else None,
-        block_size=50, nb_profiling_iter=10
+        block_size=50, nb_profiling_iter=20
     )
     print(model.params)
 
