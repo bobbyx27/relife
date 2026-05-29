@@ -16,6 +16,7 @@ from .distribution import (
     MinimumDistribution,
     Weibull,
 )
+from .mixtures import Mixture
 from .non_parametric import ECDF, KaplanMeier, NelsonAalen
 from .regression import (
     AcceleratedFailureTime,
@@ -40,4 +41,5 @@ __all__ = [
     "ECDF",
     "KaplanMeier",
     "NelsonAalen",
+    "Mixture",
 ]
