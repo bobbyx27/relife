@@ -159,8 +159,11 @@ class DefaultLifetimeLikelihood(Likelihood):
         neg_log_likelihood = np.copy(
             optimizer.fun
         )  # neg_log_likelihood value at optimal
-        hessian = approx_hessian(self, optimal_params)
-        covariance_matrix = np.linalg.pinv(hessian)
+        try:
+            hessian = approx_hessian(self, optimal_params)
+            covariance_matrix = np.linalg.pinv(hessian)
+        except Exception:
+            covariance_matrix = None
         return FittingResults(
             len(self._time),
             optimal_params,
