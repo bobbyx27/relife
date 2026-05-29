@@ -18,7 +18,7 @@ def _args_reshape(*args):
 
 
 class DefaultLifetimeLikelihood(Likelihood):
-    def __init__(self, model, time, *args, event = None, entry = None):
+    def __init__(self, model, time, *args, event=None, entry=None, weights=None):
         super().__init__(model)
 
         time = reshape_1d_arg(time)
@@ -31,25 +31,41 @@ class DefaultLifetimeLikelihood(Likelihood):
                 f"All lifetime data must have the same number of values. Fields length are different. Got {tuple(sizes)}"
             )
 
+        if weights is not None:
+            weights = reshape_1d_arg(weights)
+            if len(weights) != len(time):
+                raise ValueError(
+                    f"weights must have the same length as time. Got {len(weights)} vs {len(time)}"
+                )
+        else:
+            weights = np.ones_like(time, dtype=np.float64)
+
         self._time = time
         self._complete_time = time[np.flatnonzero(event)]
         self._nonzero_entry = entry[np.flatnonzero(entry)]
         self._args = args
         self._complete_time_args = tuple(arg[np.flatnonzero(event)] for arg in args)
         self._nonzero_entry_args = tuple(arg[np.flatnonzero(entry)] for arg in args)
+        self._weights = weights
+        self._complete_weights = weights[np.flatnonzero(event)]
+        self._nonzero_entry_weights = weights[np.flatnonzero(entry)]
 
     def _time_contrib(self):
-        return np.sum(self.model.chf(self._time, *self._args))
+        return np.sum(self._weights * self.model.chf(self._time, *self._args))
 
     def _event_contrib(self):
         if len(self._complete_time) == 0:
             return None
-        return np.sum(-np.log(self.model.hf(self._complete_time, *self._complete_time_args)))
+        return np.sum(
+            self._complete_weights * (-np.log(self.model.hf(self._complete_time, *self._complete_time_args)))
+        )
 
     def _entry_contrib(self):
         if len(self._nonzero_entry) == 0:
             return None
-        return -np.sum(self.model.chf(self._nonzero_entry, *self._nonzero_entry_args))
+        return -np.sum(
+            self._nonzero_entry_weights * self.model.chf(self._nonzero_entry, *self._nonzero_entry_args)
+        )
 
     def _jac_time_contrib(self):
         jac = self.model.jac_chf(
@@ -57,10 +73,8 @@ class DefaultLifetimeLikelihood(Likelihood):
             *self._args,
             asarray=True,
         )
-
-        # Sum all contribs
-        # Axis 0 is the parameters
-        return np.sum(jac, axis=tuple(range(1, jac.ndim)))
+        # self._weights broadcasts from (n, 1) over (p, n, 1); axis 0 is the parameters
+        return np.sum(self._weights * jac, axis=tuple(range(1, jac.ndim)))
 
     def _jac_event_contrib(self):
         if len(self._complete_time) == 0:
@@ -70,10 +84,7 @@ class DefaultLifetimeLikelihood(Likelihood):
             *self._complete_time_args,
             asarray=True,
         ) / self.model.hf(self._complete_time, *self._complete_time_args)
-
-        # Sum all contribs
-        # Axis 0 is the parameters
-        return np.sum(jac, axis=tuple(range(1, jac.ndim)))
+        return np.sum(self._complete_weights * jac, axis=tuple(range(1, jac.ndim)))
 
     def _jac_entry_contrib(self):
         if len(self._nonzero_entry) == 0:
@@ -85,10 +96,7 @@ class DefaultLifetimeLikelihood(Likelihood):
             *self._nonzero_entry_args,
             asarray=True,
         )
-
-        # Sum all contribs
-        # Axis 0 is the parameters
-        return np.sum(jac, axis=tuple(range(1, jac.ndim)))
+        return np.sum(self._nonzero_entry_weights * jac, axis=tuple(range(1, jac.ndim)))
 
     def negative_log(
         self,
