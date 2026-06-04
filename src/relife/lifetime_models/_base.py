@@ -967,6 +967,7 @@ class FittableParametricLifetimeModel(ParametricLifetimeModel[*Ts], ABC):
         | None = None,
         event: Array1D[np.bool_] | None = None,
         entry: Array1D[np.float64] | None = None,
+        weights: Array1D[np.float64] | None = None,
         **kwargs: Any,
     ) -> LifetimeLikelihood[M]:
         r"""
@@ -998,6 +999,8 @@ class FittableParametricLifetimeModel(ParametricLifetimeModel[*Ts], ABC):
             Boolean indicators tagging lifetime values as right censored or complete.
         entry : 1d array, default is None
             Left truncations applied to lifetime values.
+        weights : 1d array, default is None
+            Observation weights. If None, all observations are equally weighted.
         **kwargs
             Extra arguments to control the parameters optimization. It can be:
 
@@ -1027,6 +1030,7 @@ class FittableParametricLifetimeModel(ParametricLifetimeModel[*Ts], ABC):
         | None = None,
         event: Array1D[np.bool_] | None = None,
         entry: Array1D[np.float64] | None = None,
+        weights: Array1D[np.float64] | None = None,
         **kwargs: Any,
     ) -> Self:
         """
@@ -1042,6 +1046,8 @@ class FittableParametricLifetimeModel(ParametricLifetimeModel[*Ts], ABC):
             Boolean indicators tagging lifetime values as right censored or complete.
         entry : 1d array, default is None
             Left truncations applied to lifetime values.
+        weights : 1d array, default is None
+            Observation weights. If None, all observations are equally weighted.
         **kwargs
             Extra arguments used by `scipy.optimize.minimize
             <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html>`_
@@ -1059,7 +1065,7 @@ class FittableParametricLifetimeModel(ParametricLifetimeModel[*Ts], ABC):
             The estimated parameters are setted inplace.
         """
         optimizer: LifetimeLikelihood[Self] = self.init_likelihood(
-            time, args, event, entry, **kwargs
+            time, args, event, entry, weights, **kwargs
         )
         assert id(optimizer.model) != id(self)
         self.fitting_results = optimizer.optimize()
@@ -1158,6 +1164,15 @@ class LifetimeData:
     complete_time_args: tuple[Array2D[Any], ...] = field(init=False, repr=False)
     censored_time_args: tuple[Array2D[Any], ...] = field(init=False, repr=False)
     left_truncations_args: tuple[Array2D[Any], ...] = field(init=False, repr=False)
+    complete_weights: Array[tuple[int, Literal[1]], np.float64] = field(
+        init=False, repr=False
+    )
+    censored_weights: Array[tuple[int, Literal[1]], np.float64] = field(
+        init=False, repr=False
+    )
+    left_truncations_weights: Array[tuple[int, Literal[1]], np.float64] = field(
+        init=False, repr=False
+    )
 
     def __init__(
         self,
@@ -1167,6 +1182,7 @@ class LifetimeData:
         ) = None,
         event: Array1D[np.bool_] | None = None,
         entry: Array1D[np.float64] | None = None,
+        weights: Array1D[np.float64] | None = None,
     ) -> None:
         column_time = to_column_2d_if_1d(time)
         if column_time.shape[-1] == 2 and event is not None:
@@ -1191,9 +1207,14 @@ class LifetimeData:
             column_args = (to_column_2d_if_1d(args),)
         else:
             column_args = ()
+        column_weights = (
+            to_column_2d_if_1d(weights)
+            if weights is not None
+            else np.ones_like(time, dtype=np.float64)
+        )
         sizes = [
             len(x)
-            for x in (column_time, column_event, column_entry, *column_args)
+            for x in (column_time, column_event, column_entry, column_weights, *column_args)
             if x is not None
         ]
         if len(set(sizes)) != 1:
@@ -1216,6 +1237,9 @@ class LifetimeData:
             self.left_truncations_args = tuple(
                 arg[non_zero_entry] for arg in column_args
             )
+            self.complete_weights = column_weights[non_zero_event]
+            self.censored_weights = column_weights[zero_event]
+            self.left_truncations_weights = column_weights[non_zero_entry]
         else:
             complete_time_index = np.flatnonzero(column_time[:, 0] == column_time[:, 1])
             non_complete_time_index = np.flatnonzero(
@@ -1234,6 +1258,9 @@ class LifetimeData:
             self.left_truncations_args = tuple(
                 arg[non_zero_entry] for arg in column_args
             )
+            self.complete_weights = column_weights[:, 1][complete_time_index]
+            self.censored_weights = column_weights[non_complete_time_index]
+            self.left_truncations_weights = column_weights[non_zero_entry]
 
 
 @final
@@ -1323,7 +1350,9 @@ def _complete_time_contrib(
 ) -> float:
     if data.complete_time.size == 0.0:
         return 0.0
-    return -np.sum(np.log(model.pdf(data.complete_time, *data.complete_time_args)))
+    return -np.sum(
+        data.complete_weights * np.log(model.pdf(data.complete_time, *data.complete_time_args))
+    )
 
 
 def _jac_complete_time_contrib(
@@ -1337,8 +1366,7 @@ def _jac_complete_time_contrib(
     jac = -model.jac_pdf(data.complete_time, *data.complete_time_args) / model.pdf(
         data.complete_time, *data.complete_time_args
     )
-
-    return np.sum(jac, axis=(1, 2))
+    return np.sum(data.complete_weights * jac, axis=(1, 2))
 
 
 def _censored_time_contrib(
@@ -1352,7 +1380,8 @@ def _censored_time_contrib(
     if data.censored_time.shape[-1] > 1:
         # interval censored time
         return np.sum(
-            -np.log(
+            data.censored_weights
+            * -np.log(
                 10**-10
                 + model.cdf(data.censored_time[:, 1], *data.censored_time_args)
                 - model.cdf(data.censored_time[:, 0], *data.censored_time_args)
@@ -1360,7 +1389,9 @@ def _censored_time_contrib(
         )
     else:
         # right censored time
-        return np.sum(model.chf(data.censored_time, *data.censored_time_args))
+        return np.sum(
+            data.censored_weights * model.chf(data.censored_time, *data.censored_time_args)
+        )
 
 
 def _jac_censored_time_contrib(
@@ -1381,12 +1412,11 @@ def _jac_censored_time_contrib(
             + model.cdf(data.censored_time[:, 1], *data.censored_time_args)
             - model.cdf(data.censored_time[:, 0], *data.censored_time_args)
         )
-
-        return np.sum(jac_interval_censored, axis=(1, 2))
+        return np.sum(data.censored_weights * jac_interval_censored, axis=(1, 2))
     else:
         # right censored time
         return np.sum(
-            model.jac_chf(data.censored_time, *data.censored_time_args),
+            data.censored_weights * model.jac_chf(data.censored_time, *data.censored_time_args),
             axis=(1, 2),
         )
 
@@ -1399,7 +1429,9 @@ def _left_truncations_contrib(
 ) -> float:
     if data.left_truncations.size == 0.0:
         return 0.0
-    return -np.sum(model.chf(data.left_truncations, *data.left_truncations_args))
+    return -np.sum(
+        data.left_truncations_weights * model.chf(data.left_truncations, *data.left_truncations_args)
+    )
 
 
 def _jac_left_truncations_contrib(
@@ -1411,4 +1443,4 @@ def _jac_left_truncations_contrib(
     if data.left_truncations.size == 0.0:
         return np.zeros_like(model.get_params())
     jac = -model.jac_chf(data.left_truncations, *data.left_truncations_args)
-    return np.sum(jac, axis=(1, 2))
+    return np.sum(data.left_truncations_weights * jac, axis=(1, 2))

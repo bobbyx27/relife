@@ -442,6 +442,7 @@ class ParametricLifetimeRegression(
         | None = None,
         event: Array1D[np.bool_] | None = None,
         entry: Array1D[np.float64] | None = None,
+        weights: Array1D[np.float64] | None = None,
         **kwargs: Any,
     ) -> LifetimeLikelihood[Self]:
         if not isinstance(args, np.ndarray):
@@ -450,7 +451,7 @@ class ParametricLifetimeRegression(
         regression = type(self)(
             type(self.baseline)(), coefficients=(0.0,) * covar.shape[-1]
         )  # init new regression object with appropriate number of covar
-        lifetime_data = LifetimeData(time, args, event, entry)
+        lifetime_data = LifetimeData(time, args, event, entry, weights)
         x0 = kwargs.get(
             "x0", init_regression_params_from_lifetimes(regression, lifetime_data)
         )
@@ -477,6 +478,7 @@ class ParametricLifetimeRegression(
         | None = None,
         event: Array1D[np.bool_] | None = None,
         entry: Array1D[np.float64] | None = None,
+        weights: Array1D[np.float64] | None = None,
         **kwargs: Any,
     ) -> Self:
         if not isinstance(args, np.ndarray):
@@ -484,7 +486,7 @@ class ParametricLifetimeRegression(
         self.covar_effect = LinearCovarEffect(
             (None,) * to_column_2d_if_1d(np.asarray(args, dtype=np.float64)).shape[-1]
         )  # changes params structure depending on number of covar
-        return super().fit(time, args, event, entry, **kwargs)
+        return super().fit(time, args, event, entry, weights, **kwargs)
 
 
 def init_regression_params_from_lifetimes(

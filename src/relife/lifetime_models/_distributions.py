@@ -169,10 +169,11 @@ class LifetimeDistribution(FittableParametricLifetimeModel[()], ABC):
         | None = None,
         event: Array1D[np.bool_] | None = None,
         entry: Array1D[np.float64] | None = None,
+        weights: Array1D[np.float64] | None = None,
         **kwargs: Any,
     ) -> LifetimeLikelihood[Self]:
         assert args is None
-        lifetime_data = LifetimeData(time, event=event, entry=entry)
+        lifetime_data = LifetimeData(time, event=event, entry=entry, weights=weights)
         x0 = kwargs.get("x0", init_distrib_params_from_lifetimes(self, lifetime_data))
         config = OptimizerConfig(x0)
         config.scipy_minimize_options["bounds"] = kwargs.get(
@@ -1073,12 +1074,13 @@ class MinimumDistribution(FittableParametricLifetimeModel[AnyUnsignedInt]):
         | None = None,
         event: Array1D[np.bool_] | None = None,
         entry: Array1D[np.float64] | None = None,
+        weights: Array1D[np.float64] | None = None,
         **kwargs: Any,
     ) -> LifetimeLikelihood[Self]:
         if not isinstance(args, np.ndarray):
             raise ValueError("args is expected to be covar only.")
         args = to_column_2d_if_1d(args)
-        lifetime_data = LifetimeData(time, args, event, entry)
+        lifetime_data = LifetimeData(time, args, event, entry, weights)
         x0 = kwargs.get(
             "x0", init_distrib_params_from_lifetimes(self.baseline, lifetime_data)
         )
@@ -1103,6 +1105,7 @@ class MinimumDistribution(FittableParametricLifetimeModel[AnyUnsignedInt]):
         | None = None,
         event: Array1D[np.bool_] | None = None,
         entry: Array1D[np.float64] | None = None,
+        weights: Array1D[np.float64] | None = None,
         **kwargs: Any,
     ) -> Self:
         if not isinstance(args, np.ndarray):
@@ -1112,5 +1115,6 @@ class MinimumDistribution(FittableParametricLifetimeModel[AnyUnsignedInt]):
             args=args,
             event=event,
             entry=entry,
+            weights=weights,
             **kwargs,
         )
