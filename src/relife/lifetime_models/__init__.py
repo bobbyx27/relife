@@ -60,6 +60,7 @@ Likelihoods
 
 from ._base import LifetimeLikelihood
 from ._conditional_models import AgeReplacementModel, LeftTruncatedModel
+from ._mixtures import Mixture
 from ._distributions import (
     EquilibriumDistribution,
     Exponential,
@@ -83,6 +84,7 @@ from ._semi_parametric_regressions import (
 
 __all__ = [
     "LifetimeLikelihood",
+    "Mixture",
     "Exponential",
     "Weibull",
     "Gompertz",
