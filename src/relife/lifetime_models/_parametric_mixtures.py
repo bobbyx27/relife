@@ -69,6 +69,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
     """
 
     fitting_results: FittingResults | None
+    _mix_weights: NDArray[np.float64]
 
     def __init__(
         self,
@@ -119,12 +120,15 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
     @property
     def nb_components(self) -> int:
         """Number of mixture components."""
-        return sum(1 for k in self._baseline_models if k.startswith("component_"))
+        k = 0
+        while hasattr(self, f"component_{k}"):
+            k += 1
+        return k
 
     @property
     def components(self) -> list[FittableParametricLifetimeModel[*tuple[Any, ...]]]:
         """List of component models in order."""
-        return [self._baseline_models[f"component_{k}"] for k in range(self.nb_components)]  # type: ignore[return-value]
+        return [getattr(self, f"component_{k}") for k in range(self.nb_components)]
 
     @property
     def mix_weights(self) -> NDArray[np.float64]:
