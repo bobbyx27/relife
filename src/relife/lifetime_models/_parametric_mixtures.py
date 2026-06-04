@@ -328,7 +328,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
         optimizer_options: dict[str, Any] | None,
     ) -> None:
         """M-step: update component k via its weighted LTRC likelihood."""
-        if weights_k.sum() < 1e-10:
+        if weights_k.sum() < 1e-10 or not np.all(np.isfinite(weights_k)):
             return
         comp = self.components[k]
         comp_opts = dict(optimizer_options) if optimizer_options else {}
