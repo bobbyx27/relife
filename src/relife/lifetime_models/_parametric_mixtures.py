@@ -97,21 +97,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
         for k, comp in enumerate(components):
             setattr(self, f"component_{k}", comp)
 
-        if mix_weights is not None:
-            mix_weights = np.asarray(mix_weights, dtype=np.float64)
-            if mix_weights.shape != (K,):
-                raise ValueError(
-                    f"mix_weights must have shape ({K},), got {mix_weights.shape}"
-                )
-            if not np.isclose(mix_weights.sum(), 1.0):
-                raise ValueError(
-                    f"mix_weights must sum to 1, got sum = {mix_weights.sum():.6g}"
-                )
-            if np.any(mix_weights <= 0):
-                raise ValueError("All mix_weights must be strictly positive")
-            self._mix_weights = mix_weights.copy()
-        else:
-            self._mix_weights = np.full(K, 1.0 / K)
+        self.mix_weights = mix_weights if mix_weights is not None else np.full(K, 1.0 / K)
 
     # ------------------------------------------------------------------
     # Properties
