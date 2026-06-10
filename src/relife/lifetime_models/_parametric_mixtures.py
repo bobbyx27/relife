@@ -22,6 +22,9 @@ from ._parametric_regressions import (
 
 __all__ = ["Mixture"]
 
+_MIN_WEIGHT_SUM: float = 1e-10
+_MIN_BAND_SIZE: int = 5
+
 ST: TypeAlias = int | float
 NumpyST: TypeAlias = np.floating | np.uint
 
@@ -337,7 +340,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
         optimizer_options: dict[str, Any] | None,
     ) -> None:
         """M-step: update component k via its weighted LTRC likelihood."""
-        if weights_k.sum() < 1e-10 or not np.all(np.isfinite(weights_k)):
+        if weights_k.sum() < _MIN_WEIGHT_SUM or not np.all(np.isfinite(weights_k)):
             return
         comp = self.components[k]
         comp_opts = dict(optimizer_options) if optimizer_options else {}
@@ -371,7 +374,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
 
         for k, comp in enumerate(self.components):
             band_idx = sorted_idx[band_edges[k] : band_edges[k + 1]]
-            if len(band_idx) < 5:
+            if len(band_idx) < _MIN_BAND_SIZE:
                 band_idx = sorted_idx
             k_time = time[band_idx]
             k_event = event[band_idx]
