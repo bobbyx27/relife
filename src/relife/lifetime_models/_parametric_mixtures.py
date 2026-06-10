@@ -347,6 +347,47 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
             **comp_opts,
         )
 
+    def _init_components(
+        self,
+        time: NDArray[np.float64],
+        *args: Any,
+        event: NDArray[np.bool_],
+    ) -> None:
+        """Initialise component parameters from quantile bands of the data.
+
+        Fits each component on a distinct quantile band to break symmetry.
+        Uses simple RC likelihood (no left-truncation) for speed.  Falls back
+        to a scale estimate derived from the band's median lifetime when the
+        band fit fails or produces extreme parameters.
+        """
+        n = len(time)
+        K = self.nb_components
+        sorted_idx = np.argsort(time)
+        band_edges = np.linspace(0, n, K + 1, dtype=int)
+        fallback_scales = np.percentile(time, np.linspace(5, 95, K))
+
+        for k, comp in enumerate(self.components):
+            band_idx = sorted_idx[band_edges[k] : band_edges[k + 1]]
+            if len(band_idx) < 5:
+                band_idx = sorted_idx
+            k_time = time[band_idx]
+            k_event = event[band_idx]
+            k_args = tuple(
+                np.asarray(a).reshape(n, -1)[band_idx]
+                if np.ndim(a) > 0 and np.shape(a)[0] == n
+                else a
+                for a in args
+            )
+            try:
+                comp.fit(k_time, *k_args, event=k_event)
+                if not np.all(np.isfinite(comp.get_params())) or np.any(
+                    np.abs(comp.get_params()) > 1e4
+                ):
+                    raise ValueError("extreme params after band fit")
+            except Exception:
+                nb_params = comp.get_params().size
+                comp.set_params(np.full(nb_params, 1.0 / fallback_scales[k]))
+
     # ------------------------------------------------------------------
     # Fitting
     # ------------------------------------------------------------------
@@ -408,38 +449,8 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
         K = self.nb_components
 
         # --- Initialisation ---
-        # If any component has uninitialised params, fit each component on a
-        # different quantile band of the observed times using simple RC
-        # likelihood (no left-truncation correction).  This breaks symmetry and
-        # gives each component a distinct, meaningful starting point.  The EM
-        # loop uses the proper LTRC likelihood from the first iteration onwards.
-        needs_init = any(np.any(np.isnan(comp.get_params())) for comp in self.components)
-        if needs_init:
-            sorted_idx = np.argsort(time)
-            band_edges = np.linspace(0, n, K + 1, dtype=int)
-            fallback_scales = np.percentile(time, np.linspace(5, 95, K))
-
-            for k, comp in enumerate(self.components):
-                band_idx = sorted_idx[band_edges[k] : band_edges[k + 1]]
-                if len(band_idx) < 5:
-                    band_idx = sorted_idx
-                k_time = time[band_idx]
-                k_event = event[band_idx]
-                k_args = tuple(
-                    np.asarray(a).reshape(n, -1)[band_idx]
-                    if np.ndim(a) > 0 and np.shape(a)[0] == n
-                    else a
-                    for a in args
-                )
-                try:
-                    comp.fit(k_time, *k_args, event=k_event)
-                    if not np.all(np.isfinite(comp.get_params())) or np.any(
-                        np.abs(comp.get_params()) > 1e4
-                    ):
-                        raise ValueError("extreme params after band fit")
-                except Exception:
-                    nb_params = comp.get_params().size
-                    comp.set_params(np.full(nb_params, 1.0 / fallback_scales[k]))
+        if any(np.any(np.isnan(comp.get_params())) for comp in self.components):
+            self._init_components(time, *args, event=event)
 
         # --- EM loop ---
         prev_ll = self._log_likelihood(time, *args, event=event, entry=entry)
