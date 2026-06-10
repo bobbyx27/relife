@@ -6,7 +6,7 @@ from typing import Any, Self, TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
-from optype.numpy import Array1D, ArrayND
+from optype.numpy import Array1D, Array2D, ArrayND
 from scipy.special import logsumexp
 from typing_extensions import override
 
@@ -326,7 +326,8 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
         self,
         k: int,
         time: NDArray[np.float64],
-        *args: Any,
+        args: Array1D[Any] | Array2D[Any] | tuple[Array1D[Any] | Array2D[Any], ...] | None,
+        *,
         event: NDArray[np.bool_],
         entry: NDArray[np.float64],
         weights_k: NDArray[np.float64],
@@ -339,7 +340,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
         comp_opts = dict(optimizer_options) if optimizer_options else {}
         comp.fit(
             time,
-            args[0] if args else None,
+            args,
             event=event,
             entry=entry if np.any(entry > 0) else None,
             weights=weights_k,
@@ -451,7 +452,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
                 self._mstep_component(
                     k,
                     time,
-                    *args,
+                    args[0] if args else None,
                     event=event,
                     entry=entry,
                     weights_k=q[:, k],
