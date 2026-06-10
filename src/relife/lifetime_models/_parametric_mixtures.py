@@ -258,7 +258,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
     # ------------------------------------------------------------------
     # EM internals
     # ------------------------------------------------------------------
-
+    
     def _log_likelihood(
         self,
         time: NDArray[np.float64],
@@ -271,12 +271,12 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
         mix_sf_time = np.ravel(self.sf(time, *args))
         log_num = np.where(
             event,
-            np.log(np.maximum(mix_pdf, 1e-300)),
-            np.log(np.maximum(mix_sf_time, 1e-300)),
+            np.log(np.maximum(mix_pdf, np.finfo(float).tiny)),
+            np.log(np.maximum(mix_sf_time, np.finfo(float).tiny)),
         )
         log_denom = np.where(
             entry > 0,
-            np.log(np.maximum(np.ravel(self.sf(entry, *args)), 1e-300)),
+            np.log(np.maximum(np.ravel(self.sf(entry, *args)), np.finfo(float).tiny)),
             0.0,
         )
         return float(np.sum(log_num - log_denom))
@@ -302,11 +302,11 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
         e = to_column_2d_if_1d(entry) if args else entry
 
         for k, (w, comp) in enumerate(zip(self._mix_weights, self.components)):
-            log_sf_time = np.log(np.maximum(np.ravel(comp.sf(t, *args)), 1e-300))
-            log_pdf_time = np.log(np.maximum(np.ravel(comp.pdf(t, *args)), 1e-300))
+            log_sf_time = np.log(np.maximum(np.ravel(comp.sf(t, *args)), np.finfo(float).tiny))
+            log_pdf_time = np.log(np.maximum(np.ravel(comp.pdf(t, *args)), np.finfo(float).tiny))
             log_sf_entry = np.where(
                 entry > 0,
-                np.log(np.maximum(np.ravel(comp.sf(e, *args)), 1e-300)),
+                np.log(np.maximum(np.ravel(comp.sf(e, *args)), np.finfo(float).tiny)),
                 0.0,
             )
             log_unnorm[:, k] = (
