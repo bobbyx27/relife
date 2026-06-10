@@ -13,9 +13,12 @@ from typing_extensions import override
 from relife.base import FittingResults
 from relife.utils import to_column_2d_if_1d
 
-from ._base import FittableParametricLifetimeModel, ParametricLifetimeModel
-from ._distributions import LifetimeDistribution
-from ._parametric_regressions import ParametricLifetimeRegression
+from ._base import FittableParametricLifetimeModel, LifetimeData, ParametricLifetimeModel
+from ._distributions import LifetimeDistribution, init_distrib_params_from_lifetimes
+from ._parametric_regressions import (
+    ParametricLifetimeRegression,
+    init_regression_params_from_lifetimes,
+)
 
 __all__ = ["Mixture"]
 
@@ -353,19 +356,18 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
         args: Array1D[Any] | Array2D[Any] | tuple[Array1D[Any] | Array2D[Any], ...] | None,
         *,
         event: NDArray[np.bool_],
+        entry: NDArray[np.float64],
     ) -> None:
         """Initialise component parameters from quantile bands of the data.
 
         Fits each component on a distinct quantile band to break symmetry.
-        Uses simple RC likelihood (no left-truncation) for speed.  Falls back
-        to a scale estimate derived from the band's median lifetime when the
-        band fit fails or produces extreme parameters.
+        Falls back to principled parameter estimates from the band data when
+        the band fit fails or produces non-finite parameters.
         """
         n = len(time)
         K = self.nb_components
         sorted_idx = np.argsort(time)
         band_edges = np.linspace(0, n, K + 1, dtype=int)
-        fallback_scales = np.percentile(time, np.linspace(5, 95, K))
 
         for k, comp in enumerate(self.components):
             band_idx = sorted_idx[band_edges[k] : band_edges[k + 1]]
@@ -373,18 +375,24 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
                 band_idx = sorted_idx
             k_time = time[band_idx]
             k_event = event[band_idx]
+            k_entry = entry[band_idx]
             k_args = (
                 np.asarray(args).reshape(n, -1)[band_idx]
                 if args is not None and np.ndim(args) > 0 and np.shape(args)[0] == n
                 else args
             )
+            k_entry_arg = k_entry if np.any(k_entry > 0) else None
             try:
-                comp.fit(k_time, k_args, event=k_event)
+                comp.fit(k_time, k_args, event=k_event, entry=k_entry_arg)
                 if not np.all(np.isfinite(comp.get_params())):
                     raise ValueError("non-finite params after band fit")
             except Exception:
-                nb_params = comp.get_params().size
-                comp.set_params(np.full(nb_params, 1.0 / fallback_scales[k]))
+                band_data = LifetimeData(k_time, k_args, event=k_event, entry=k_entry_arg)
+                if isinstance(comp, LifetimeDistribution):
+                    param0 = init_distrib_params_from_lifetimes(comp, band_data)
+                else:
+                    param0 = init_regression_params_from_lifetimes(comp, band_data)
+                comp.set_params(param0)
 
     # ------------------------------------------------------------------
     # Fitting
@@ -448,7 +456,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
 
         # --- Initialisation ---
         if any(np.any(np.isnan(comp.get_params())) for comp in self.components):
-            self._init_components(time, args[0] if args else None, event=event)
+            self._init_components(time, args[0] if args else None, event=event, entry=entry)
 
         # --- EM loop ---
         prev_ll = self._log_likelihood(time, *args, event=event, entry=entry)
