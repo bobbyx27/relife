@@ -350,7 +350,8 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
     def _init_components(
         self,
         time: NDArray[np.float64],
-        *args: Any,
+        args: Array1D[Any] | Array2D[Any] | tuple[Array1D[Any] | Array2D[Any], ...] | None,
+        *,
         event: NDArray[np.bool_],
     ) -> None:
         """Initialise component parameters from quantile bands of the data.
@@ -372,14 +373,13 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
                 band_idx = sorted_idx
             k_time = time[band_idx]
             k_event = event[band_idx]
-            k_args = tuple(
-                np.asarray(a).reshape(n, -1)[band_idx]
-                if np.ndim(a) > 0 and np.shape(a)[0] == n
-                else a
-                for a in args
+            k_args = (
+                np.asarray(args).reshape(n, -1)[band_idx]
+                if args is not None and np.ndim(args) > 0 and np.shape(args)[0] == n
+                else args
             )
             try:
-                comp.fit(k_time, *k_args, event=k_event)
+                comp.fit(k_time, k_args, event=k_event)
                 if not np.all(np.isfinite(comp.get_params())) or np.any(
                     np.abs(comp.get_params()) > 1e4
                 ):
@@ -450,7 +450,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
 
         # --- Initialisation ---
         if any(np.any(np.isnan(comp.get_params())) for comp in self.components):
-            self._init_components(time, *args, event=event)
+            self._init_components(time, args[0] if args else None, event=event)
 
         # --- EM loop ---
         prev_ll = self._log_likelihood(time, *args, event=event, entry=entry)
