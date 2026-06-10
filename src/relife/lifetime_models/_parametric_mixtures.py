@@ -380,10 +380,8 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
             )
             try:
                 comp.fit(k_time, k_args, event=k_event)
-                if not np.all(np.isfinite(comp.get_params())) or np.any(
-                    np.abs(comp.get_params()) > 1e4
-                ):
-                    raise ValueError("extreme params after band fit")
+                if not np.all(np.isfinite(comp.get_params())):
+                    raise ValueError("non-finite params after band fit")
             except Exception:
                 nb_params = comp.get_params().size
                 comp.set_params(np.full(nb_params, 1.0 / fallback_scales[k]))
