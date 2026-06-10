@@ -205,12 +205,27 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
             samples (output shape ``(m, n)``).
         *args
             Forwarded to each component model (e.g. covariate matrix for
-            regression components).
+            regression components).  For ``size=n`` the covariate must have
+            shape ``(n, nb_coef)`` (one row per sample).  For
+            ``size=(m, n)`` it must have shape ``(m, nb_coef)`` (one row per
+            asset); it is internally expanded to ``(m*n, nb_coef)`` before
+            sampling.
         seed : optional
             Seed for the random number generator.
         """
         rng = np.random.default_rng(seed)
         n_total = size if isinstance(size, int) else size[0] * size[1]
+
+        # When size=(m, n), per-asset covar has shape (m, nb_coef). Expand to
+        # (m*n, nb_coef) so every observation has its own row before masking.
+        if isinstance(size, tuple):
+            n_samples = size[1]
+            args = tuple(
+                np.repeat(np.atleast_2d(a), n_samples, axis=0)
+                if np.asarray(a).ndim > 0 and np.asarray(a).shape[0] == size[0]
+                else a
+                for a in args
+            )
 
         is_per_obs = bool(args) and any(
             np.asarray(a).ndim > 0 and np.asarray(a).shape[0] == n_total for a in args
@@ -231,7 +246,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
                     else a
                     for a in args
                 )
-                times[mask] = np.ravel(comp.rvs(1, *k_args, seed=rng))
+                times[mask] = np.ravel(comp.rvs((n_k, 1), *k_args, seed=rng))
             else:
                 times[mask] = np.ravel(comp.rvs(n_k, seed=rng))
 
