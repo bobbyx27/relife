@@ -462,7 +462,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
             self._init_components(time, args[0] if args else None, event=event, entry=entry)
 
         # --- EM loop ---
-        prev_ll = self._log_likelihood(time, *args, event=event, entry=entry)
+        ll = self._log_likelihood(time, *args, event=event, entry=entry)
         converged = False
 
         for _ in range(max_iter):
@@ -478,19 +478,17 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
                     weights_k=q[:, k],
                     optimizer_options=optimizer_options,
                 )
-            ll = self._log_likelihood(time, *args, event=event, entry=entry)
+            prev_ll, ll = ll, self._log_likelihood(time, *args, event=event, entry=entry)
             if abs(ll - prev_ll) / (1.0 + abs(ll)) < tol:
                 converged = True
                 break
-            prev_ll = ll
 
         # --- Store results ---
-        ll_final = self._log_likelihood(time, *args, event=event, entry=entry)
         self.fitting_results = FittingResults(
             nb_observations=n,
             optimal_params=np.concatenate([self._mix_weights[:-1], self.get_params()]),
             success=converged,
-            neg_log_likelihood=-ll_final,
+            neg_log_likelihood=-ll,
             covariance_matrix=None,
         )
         return self
