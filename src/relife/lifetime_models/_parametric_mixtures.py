@@ -630,10 +630,13 @@ class ParametricLifetimeMixture(_FittableParametricLifetimeModelMixture):
 
     .. math::
 
-        S(t) = \sum_{k=1}^{K} \pi_k S_k(t)
+        S(t \mid \mathbf{x}) = \sum_{k=1}^{K} \pi_k S_k(t \mid \mathbf{x})
 
     where :math:`\pi_k` are constant mixing weights (:math:`\sum_k \pi_k = 1`,
-    :math:`\pi_k > 0`) and :math:`S_k` are the component survival functions.
+    :math:`\pi_k > 0`) and :math:`S_k(t \mid \mathbf{x})` are the component
+    survival functions.  When components are :class:`LifetimeDistribution`
+    objects, the covariate dependence vanishes and the formula reduces to
+    :math:`S(t) = \sum_k \pi_k S_k(t)`.
 
     Fitting is done via the EM algorithm, fully supporting right-censored (RC)
     and left-truncated right-censored (LTRC) data.  Components can be any
