@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from typing import Any, Self, TypeAlias
 
 import numpy as np
+import torch
+import torch.nn as nn
 from numpy.typing import NDArray
 from optype.numpy import Array1D, Array2D, ArrayND
 from scipy.special import logsumexp
 from typing_extensions import override
 
-from relife.base import FittingResults
+from relife.base import FittingResults, ParametricModel
 from relife.utils import to_column_2d_if_1d
 
 from ._base import FittableParametricLifetimeModel, LifetimeData, ParametricLifetimeModel
@@ -20,7 +23,11 @@ from ._parametric_regressions import (
     init_regression_params_from_lifetimes,
 )
 
-__all__ = ["Mixture"]
+__all__ = [
+    "MixtureWeightsRegression",
+    "ParametricLifetimeMixture",
+    "ParametricLifetimeMixtureWithWeightsRegression",
+]
 
 _MIN_WEIGHT_SUM: float = 1e-10
 _MIN_BAND_SIZE: int = 5
@@ -29,58 +36,157 @@ ST: TypeAlias = int | float
 NumpyST: TypeAlias = np.floating | np.uint
 
 
-class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
-    r"""K-component parametric mixture survival model.
+def _sample_component_indices(
+    rng: np.random.Generator,
+    n_total: int,
+    nb_components: int,
+    p: NDArray[np.float64],
+) -> NDArray[np.intp]:
+    """Draw component indices supporting scalar ``(K,)`` or per-sample ``(n, K)`` weights.
+
+    Parameters
+    ----------
+    rng : np.random.Generator
+    n_total : int
+        Total number of samples.
+    nb_components : int
+        Number of mixture components ``K``.
+    p : ndarray of shape ``(K,)`` or ``(n_total, K)``
+        Mixing weights.  When 1-D, the same distribution is used for all
+        samples.  When 2-D, row ``i`` is used for sample ``i``.
+    """
+    if p.ndim == 1:
+        return rng.choice(nb_components, size=n_total, p=p)
+    return np.array([rng.choice(nb_components, p=p[i]) for i in range(n_total)])
+
+
+class MixtureWeightsRegression(ParametricModel):
+    """Softmax regression model for mixture component weights.
+
+    Maps covariates to per-sample component probabilities via a linear layer
+    followed by a softmax activation.  Parameters are fitted by minimising
+    cross-entropy loss against the E-step posterior responsibilities.
+
+    Parameters
+    ----------
+    nb_coef : int
+        Number of input covariates.
+    nb_components : int
+        Number of mixture components (output classes ``K``).
+
+    Notes
+    -----
+    The underlying :class:`torch.nn.Linear` module is always kept on CPU.
+    After fitting, parameters are synchronised back into the ``ParametricModel``
+    ``_params`` tree so that :meth:`get_params` reflects the fitted values.
+    """
+
+    torch_module: nn.Linear
+
+    def __init__(self, nb_coef: int, nb_components: int) -> None:
+        # nn.Linear is not a ParametricModel so __setattr__ just stores it normally;
+        # safe to set before super().__init__() since _baseline_models is never touched.
+        self.torch_module = nn.Linear(nb_coef, nb_components)
+        weight_vals = self.torch_module.weight.data.numpy().ravel().tolist()
+        bias_vals = self.torch_module.bias.data.numpy().ravel().tolist()
+        super().__init__(
+            **{f"weight_{i}": v for i, v in enumerate(weight_vals)},
+            **{f"bias_{i}": v for i, v in enumerate(bias_vals)},
+        )
+
+    def _sync_params(self) -> None:
+        """Copy fitted torch parameter values into ``_params``."""
+        params = np.concatenate([
+            self.torch_module.weight.data.numpy().ravel(),
+            self.torch_module.bias.data.numpy().ravel(),
+        ]).astype(np.float64)
+        self.set_params(params)
+
+    def predict(self, covar: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Return per-sample component probabilities, shape ``(n, K)``.
+
+        Parameters
+        ----------
+        covar : ndarray of shape ``(n, nb_coef)``
+        """
+        X = torch.tensor(np.asarray(covar, dtype=np.float32))
+        with torch.no_grad():
+            return torch.softmax(self.torch_module(X), dim=-1).numpy().astype(np.float64)
+
+    def fit(
+        self,
+        covar: NDArray[np.float64],
+        q: NDArray[np.float64],
+        *,
+        max_iter: int = 1000,
+        lr: float = 0.01,
+    ) -> Self:
+        """Fit via full-batch gradient descent on cross-entropy loss.
+
+        Parameters
+        ----------
+        covar : ndarray of shape ``(n, nb_coef)``
+        q : ndarray of shape ``(n, K)``
+            Soft target weights (E-step posterior responsibilities).
+        max_iter : int
+            Number of gradient steps.
+        lr : float
+            Learning rate for SGD.
+        """
+        X = torch.tensor(np.asarray(covar, dtype=np.float32))
+        targets = torch.tensor(np.asarray(q, dtype=np.float32))
+        optimizer = torch.optim.SGD(self.torch_module.parameters(), lr=lr)
+        loss_fn = nn.CrossEntropyLoss()
+        for _ in range(max_iter):
+            optimizer.zero_grad()
+            loss_fn(self.torch_module(X), targets).backward()
+            optimizer.step()
+        self._sync_params()
+        return self
+
+    def __call__(self, covar: NDArray[np.float64]) -> NDArray[np.float64]:
+        return self.predict(covar)
+
+
+class _FittableParametricLifetimeModelMixture(
+    ParametricLifetimeModel[*tuple[Any, ...]], ABC
+):
+    r"""Abstract base for K-component parametric mixture survival models.
 
     The survival function of the mixture is:
 
     .. math::
 
-        S(t) = \sum_{k=1}^{K} \pi_k S_k(t)
+        S(t \mid x) = \sum_{k=1}^{K} \pi_k(x)\, S_k(t \mid x)
 
-    where :math:`\pi_k` are the mixing weights (:math:`\sum_k \pi_k = 1`,
-    :math:`\pi_k > 0`) and :math:`S_k` are the component survival functions.
+    where :math:`\pi_k(x)` are the mixing weights and :math:`S_k` the
+    component survival functions.
 
-    Fitting is done via the EM algorithm, fully supporting right-censored (RC)
-    and left-truncated right-censored (LTRC) data.  Components can be any
-    homogeneous set of :class:`FittableParametricLifetimeModel` subclasses —
-    both ``LifetimeDistribution`` and ``ParametricLifetimeRegression`` objects
-    are accepted, provided all components share the same concrete family.  For
-    regression components, covariates are forwarded as the first positional
-    argument after ``time``.
+    Subclasses must implement :meth:`_get_weights` — which controls how
+    mixing weights are computed (fixed scalars or covariate-dependent
+    regression) — and :meth:`_mstep_weights`, the corresponding M-step
+    update.  All EM mechanics, component management, and survival functions
+    are provided here.
 
     Parameters
     ----------
     *components : FittableParametricLifetimeModel
         At least two component models, all of the same concrete family
-        (all ``LifetimeDistribution`` or all ``ParametricLifetimeRegression``).
-    mix_weights : ndarray of shape (K,), optional
-        Initial mixing weights.  Must be positive and sum to 1.  If not
-        provided, uniform weights ``1/K`` are used.
+        (all :class:`LifetimeDistribution` or all
+        :class:`ParametricLifetimeRegression`).
 
-    Examples
-    --------
-    Two-component Weibull mixture on right-censored data::
-
-        model = Mixture(Weibull(), Weibull())
-        model.fit(time, event=event)
-
-    Two-component proportional-hazard mixture with covariates::
-
-        model = Mixture(
-            ParametricProportionalHazard(Weibull()),
-            ParametricProportionalHazard(Weibull()),
-        )
-        model.fit(time, covar, event=event)
+    Notes
+    -----
+    Dynamically-named component attributes ``component_0``, ``component_1``,
+    … cannot be declared statically; they are the acknowledged exception to
+    the class-level attribute declaration convention.
     """
 
     fitting_results: FittingResults | None
-    _mix_weights: NDArray[np.float64]
 
     def __init__(
         self,
         *components: FittableParametricLifetimeModel[*tuple[Any, ...]],
-        mix_weights: NDArray[np.float64] | None = None,
     ) -> None:
         if len(components) < 2:
             raise ValueError(
@@ -95,15 +201,50 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
                 "(all LifetimeDistribution or all ParametricLifetimeRegression). "
                 f"Got {types}"
             )
-
         super().__init__()
         self.fitting_results = None
-
-        K = len(components)
         for k, comp in enumerate(components):
             setattr(self, f"component_{k}", comp)
 
-        self.mix_weights = mix_weights if mix_weights is not None else np.full(K, 1.0 / K)
+    # ------------------------------------------------------------------
+    # Abstract interface
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    def _get_weights(
+        self, covar: NDArray[np.float64] | None
+    ) -> NDArray[np.float64]:
+        """Return mixing weights.
+
+        Returns
+        -------
+        ndarray
+            Shape ``(K,)`` for fixed weights or ``(n, K)`` for per-sample
+            regression weights where ``n = covar.shape[0]``.
+        """
+
+    @abstractmethod
+    def _mstep_weights(
+        self,
+        q: NDArray[np.float64],
+        covar: NDArray[np.float64] | None = None,
+    ) -> None:
+        """M-step: update mixing weights from posterior responsibilities ``q``."""
+
+    # ------------------------------------------------------------------
+    # FittingResults hook (non-abstract, override in fixed-weight subclass)
+    # ------------------------------------------------------------------
+
+    def _fitted_mix_params(self) -> NDArray[np.float64]:
+        """Extra mixing parameters prepended to ``FittingResults.optimal_params``.
+
+        Returns an empty array by default: used when the weights model
+        parameters are already registered in ``_params`` (i.e.
+        :class:`ParametricLifetimeMixtureWithWeightsRegression`).
+        :class:`ParametricLifetimeMixture` overrides this to return
+        ``_mix_weights[:-1]``.
+        """
+        return np.array([], dtype=np.float64)
 
     # ------------------------------------------------------------------
     # Properties
@@ -122,23 +263,22 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
         """List of component models in order."""
         return [getattr(self, f"component_{k}") for k in range(self.nb_components)]
 
-    @property
-    def mix_weights(self) -> NDArray[np.float64]:
-        """Mixing weights, shape (K,)."""
-        return self._mix_weights.copy()
+    # ------------------------------------------------------------------
+    # Internal helper
+    # ------------------------------------------------------------------
 
-    @mix_weights.setter
-    def mix_weights(self, value: NDArray[np.float64]) -> None:
-        value = np.asarray(value, dtype=np.float64)
-        if value.shape != (self.nb_components,):
-            raise ValueError(
-                f"mix_weights must have shape ({self.nb_components},), got {value.shape}"
-            )
-        if not np.isclose(value.sum(), 1.0):
-            raise ValueError(f"mix_weights must sum to 1, got sum = {value.sum():.6g}")
-        if np.any(value <= 0):
-            raise ValueError("All mix_weights must be strictly positive")
-        self._mix_weights = value.copy()
+    @staticmethod
+    def _w_k(
+        w: NDArray[np.float64], k: int
+    ) -> np.float64 | NDArray[np.float64]:
+        """Per-component weight slice safe against the ``(n,) × (n,1)`` broadcast bug.
+
+        Returns ``w[k]`` (scalar) for 1-D weight arrays and ``w[:, k:k+1]``
+        (column vector) for 2-D per-sample weight arrays, so that
+        multiplication with a component output of shape ``(n, 1)`` always
+        yields ``(n, 1)`` rather than ``(n, n)``.
+        """
+        return w[k] if w.ndim == 1 else w[:, k : k + 1]
 
     # ------------------------------------------------------------------
     # Core survival functions
@@ -150,9 +290,10 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
     ) -> np.float64 | ArrayND[np.float64]:
         """Mixture survival function :math:`S(t) = \\sum_k \\pi_k S_k(t)`."""
         t = to_column_2d_if_1d(time) if args else time
+        w = self._get_weights(args[0] if args else None)
         return sum(
-            w * comp.sf(t, *args)
-            for w, comp in zip(self._mix_weights, self.components)
+            self._w_k(w, k) * comp.sf(t, *args)
+            for k, comp in enumerate(self.components)
         )
 
     @override
@@ -161,9 +302,10 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
     ) -> np.float64 | ArrayND[np.float64]:
         """Mixture density :math:`f(t) = \\sum_k \\pi_k f_k(t)`."""
         t = to_column_2d_if_1d(time) if args else time
+        w = self._get_weights(args[0] if args else None)
         return sum(
-            w * comp.pdf(t, *args)
-            for w, comp in zip(self._mix_weights, self.components)
+            self._w_k(w, k) * comp.pdf(t, *args)
+            for k, comp in enumerate(self.components)
         )
 
     @override
@@ -199,7 +341,8 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
     ) -> np.float64 | ArrayND[np.float64]:
         """Sample lifetimes using latent class assignment.
 
-        Draws component membership from ``Categorical(π)``, then samples from
+        Draws component membership from ``Categorical(π)`` — per-sample when
+        weights have shape ``(n, K)``, global when ``(K,)`` — then samples from
         each component.  For regression components the covariate rows are split
         by assignment; they must have a leading dimension equal to the total
         number of samples.
@@ -237,7 +380,12 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
             np.asarray(a).ndim > 0 and np.asarray(a).shape[0] == n_total for a in args
         )
 
-        component_indices = rng.choice(self.nb_components, size=n_total, p=self._mix_weights)
+        component_indices = _sample_component_indices(
+            rng,
+            n_total,
+            self.nb_components,
+            self._get_weights(args[0] if args else None),
+        )
         times = np.empty(n_total)
 
         for k, comp in enumerate(self.components):
@@ -264,7 +412,7 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
     # ------------------------------------------------------------------
     # EM internals
     # ------------------------------------------------------------------
-    
+
     def _log_likelihood(
         self,
         time: NDArray[np.float64],
@@ -307,7 +455,8 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
         t = to_column_2d_if_1d(time) if args else time
         e = to_column_2d_if_1d(entry) if args else entry
 
-        for k, (w, comp) in enumerate(zip(self._mix_weights, self.components)):
+        w = self._get_weights(args[0] if args else None)  # (K,) or (n, K)
+        for k, comp in enumerate(self.components):
             log_sf_time = np.log(np.maximum(np.ravel(comp.sf(t, *args)), np.finfo(float).tiny))
             log_pdf_time = np.log(np.maximum(np.ravel(comp.pdf(t, *args)), np.finfo(float).tiny))
             log_sf_entry = np.where(
@@ -316,17 +465,13 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
                 0.0,
             )
             log_unnorm[:, k] = (
-                np.log(w)
+                np.log(np.maximum(w[..., k], np.finfo(float).tiny))
                 + np.where(event, log_pdf_time, log_sf_time)
                 - log_sf_entry
             )
 
         log_norm = logsumexp(log_unnorm, axis=1, keepdims=True)
         return np.exp(log_unnorm - log_norm)
-
-    def _mstep_weights(self, q: NDArray[np.float64]) -> None:
-        """M-step: update mixing weights as the column-wise mean of q."""
-        self._mix_weights = q.mean(axis=0)
 
     def _mstep_component(
         self,
@@ -457,17 +602,15 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
 
         K = self.nb_components
 
-        # --- Initialisation ---
         if any(np.any(np.isnan(comp.get_params())) for comp in self.components):
             self._init_components(time, args[0] if args else None, event=event, entry=entry)
 
-        # --- EM loop ---
         ll = self._log_likelihood(time, *args, event=event, entry=entry)
         converged = False
 
         for _ in range(max_iter):
             q = self._estep(time, *args, event=event, entry=entry)
-            self._mstep_weights(q)
+            self._mstep_weights(q, covar=args[0] if args else None)
             for k in range(K):
                 self._mstep_component(
                     k,
@@ -483,12 +626,173 @@ class Mixture(ParametricLifetimeModel[*tuple[Any, ...]]):
                 converged = True
                 break
 
-        # --- Store results ---
         self.fitting_results = FittingResults(
             nb_observations=n,
-            optimal_params=np.concatenate([self._mix_weights[:-1], self.get_params()]),
+            optimal_params=np.concatenate([self._fitted_mix_params(), self.get_params()]),
             success=converged,
             neg_log_likelihood=-ll,
             covariance_matrix=None,
         )
         return self
+
+
+class ParametricLifetimeMixture(_FittableParametricLifetimeModelMixture):
+    r"""K-component parametric mixture with fixed mixing weights.
+
+    The survival function of the mixture is:
+
+    .. math::
+
+        S(t) = \sum_{k=1}^{K} \pi_k S_k(t)
+
+    where :math:`\pi_k` are constant mixing weights (:math:`\sum_k \pi_k = 1`,
+    :math:`\pi_k > 0`) and :math:`S_k` are the component survival functions.
+
+    Fitting is done via the EM algorithm, fully supporting right-censored (RC)
+    and left-truncated right-censored (LTRC) data.  Components can be any
+    homogeneous set of :class:`FittableParametricLifetimeModel` subclasses —
+    both ``LifetimeDistribution`` and ``ParametricLifetimeRegression`` objects
+    are accepted, provided all components share the same concrete family.  For
+    regression components, covariates are forwarded as the first positional
+    argument after ``time``.
+
+    Parameters
+    ----------
+    *components : FittableParametricLifetimeModel
+        At least two component models, all of the same concrete family
+        (all ``LifetimeDistribution`` or all ``ParametricLifetimeRegression``).
+    mix_weights : ndarray of shape (K,), optional
+        Initial mixing weights.  Must be positive and sum to 1.  If not
+        provided, uniform weights ``1/K`` are used.
+
+    Examples
+    --------
+    Two-component Weibull mixture on right-censored data::
+
+        model = ParametricLifetimeMixture(Weibull(), Weibull())
+        model.fit(time, event=event)
+
+    Two-component proportional-hazard mixture with covariates::
+
+        model = ParametricLifetimeMixture(
+            ParametricProportionalHazard(Weibull()),
+            ParametricProportionalHazard(Weibull()),
+        )
+        model.fit(time, covar, event=event)
+    """
+
+    fitting_results: FittingResults | None
+    _mix_weights: NDArray[np.float64]
+
+    def __init__(
+        self,
+        *components: FittableParametricLifetimeModel[*tuple[Any, ...]],
+        mix_weights: NDArray[np.float64] | None = None,
+    ) -> None:
+        super().__init__(*components)
+        K = self.nb_components
+        self.mix_weights = mix_weights if mix_weights is not None else np.full(K, 1.0 / K)
+
+    # ------------------------------------------------------------------
+    # mix_weights property
+    # ------------------------------------------------------------------
+
+    @property
+    def mix_weights(self) -> NDArray[np.float64]:
+        """Mixing weights, shape (K,)."""
+        return self._mix_weights.copy()
+
+    @mix_weights.setter
+    def mix_weights(self, value: NDArray[np.float64]) -> None:
+        value = np.asarray(value, dtype=np.float64)
+        if value.shape != (self.nb_components,):
+            raise ValueError(
+                f"mix_weights must have shape ({self.nb_components},), got {value.shape}"
+            )
+        if not np.isclose(value.sum(), 1.0):
+            raise ValueError(f"mix_weights must sum to 1, got sum = {value.sum():.6g}")
+        if np.any(value <= 0):
+            raise ValueError("All mix_weights must be strictly positive")
+        self._mix_weights = value.copy()
+
+    # ------------------------------------------------------------------
+    # Abstract method implementations
+    # ------------------------------------------------------------------
+
+    @override
+    def _get_weights(self, covar: NDArray[np.float64] | None) -> NDArray[np.float64]:
+        return self._mix_weights  # (K,)
+
+    @override
+    def _mstep_weights(
+        self,
+        q: NDArray[np.float64],
+        covar: NDArray[np.float64] | None = None,
+    ) -> None:
+        self._mix_weights = q.mean(axis=0)
+
+    @override
+    def _fitted_mix_params(self) -> NDArray[np.float64]:
+        return self._mix_weights[:-1]
+
+
+class ParametricLifetimeMixtureWithWeightsRegression(
+    _FittableParametricLifetimeModelMixture
+):
+    r"""K-component parametric mixture with covariate-dependent mixing weights.
+
+    Mixing weights are modelled as a softmax regression:
+
+    .. math::
+
+        \pi_k(x) = \frac{\exp(w_k^\top x + b_k)}{\sum_{j} \exp(w_j^\top x + b_j)}
+
+    so that each observation ``i`` contributes to the mixture with its own
+    per-sample weight vector :math:`\pi(x_i) \in \Delta^{K-1}`.
+
+    Parameters
+    ----------
+    *components : FittableParametricLifetimeModel
+        At least two component models, all of the same concrete family
+        (all ``LifetimeDistribution`` or all ``ParametricLifetimeRegression``).
+    nb_coef : int
+        Number of covariates fed to the weights regression model.
+
+    Examples
+    --------
+    Two-component proportional-hazard mixture where weights depend on covar::
+
+        model = ParametricLifetimeMixtureWithWeightsRegression(
+            ParametricProportionalHazard(Weibull()),
+            ParametricProportionalHazard(Weibull()),
+            nb_coef=3,
+        )
+        model.fit(time, covar, event=event)
+    """
+
+    fitting_results: FittingResults | None
+    weights_model: MixtureWeightsRegression
+
+    def __init__(
+        self,
+        *components: FittableParametricLifetimeModel[*tuple[Any, ...]],
+        nb_coef: int,
+    ) -> None:
+        super().__init__(*components)
+        self.weights_model = MixtureWeightsRegression(nb_coef, self.nb_components)
+
+    # ------------------------------------------------------------------
+    # Abstract method implementations
+    # ------------------------------------------------------------------
+
+    @override
+    def _get_weights(self, covar: NDArray[np.float64] | None) -> NDArray[np.float64]:
+        return self.weights_model.predict(covar)  # (n, K)
+
+    @override
+    def _mstep_weights(
+        self,
+        q: NDArray[np.float64],
+        covar: NDArray[np.float64] | None = None,
+    ) -> None:
+        self.weights_model.fit(covar, q)

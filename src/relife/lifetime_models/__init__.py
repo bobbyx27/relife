@@ -60,7 +60,13 @@ Likelihoods
 
 from ._base import LifetimeLikelihood
 from ._conditional_models import AgeReplacementModel, LeftTruncatedModel
-from ._parametric_mixtures import Mixture
+from ._parametric_mixtures import (
+    MixtureWeightsRegression,
+    ParametricLifetimeMixture,
+    ParametricLifetimeMixtureWithWeightsRegression,
+)
+
+Mixture = ParametricLifetimeMixture  # backward-compat alias
 from ._distributions import (
     EquilibriumDistribution,
     Exponential,
