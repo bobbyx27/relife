@@ -119,10 +119,6 @@ class MixtureWeightsRegression(ParametricModel):
         self._sync_params()
         return self
 
-    def __call__(self, covar: NDArray[np.float64]) -> NDArray[np.float64]:
-        return self.predict(covar)
-
-
 class _FittableParametricLifetimeModelMixture(
     ParametricLifetimeModel[*tuple[Any, ...]], ABC
 ):
@@ -745,8 +741,6 @@ class ParametricLifetimeMixtureWithWeightsRegression(
     *components : FittableParametricLifetimeModel
         At least two component models, all of the same concrete family
         (all ``LifetimeDistribution`` or all ``ParametricLifetimeRegression``).
-    nb_coef : int
-        Number of covariates fed to the weights regression model.
 
     Examples
     --------
@@ -755,21 +749,31 @@ class ParametricLifetimeMixtureWithWeightsRegression(
         model = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=3,
         )
         model.fit(time, covar, event=event)
     """
 
     fitting_results: FittingResults | None
-    weights_model: MixtureWeightsRegression
+    weights_model: MixtureWeightsRegression | None
 
     def __init__(
         self,
         *components: FittableParametricLifetimeModel[*tuple[Any, ...]],
-        nb_coef: int,
     ) -> None:
         super().__init__(*components)
-        self.weights_model = MixtureWeightsRegression(nb_coef, self.nb_components)
+        self.weights_model = None
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    @override
+    def fit(self, time: Any, *args: Any, **kwargs: Any) -> Self:
+        if args:
+            covar = np.asarray(args[0])
+            nb_coef = covar.shape[1] if covar.ndim == 2 else 1
+            self.weights_model = MixtureWeightsRegression(nb_coef, self.nb_components)
+        return super().fit(time, *args, **kwargs)
 
     # ------------------------------------------------------------------
     # Abstract method implementations

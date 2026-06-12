@@ -78,7 +78,6 @@ def fitted_mixture_wr(rc_data_wr):
     m = ParametricLifetimeMixtureWithWeightsRegression(
         ParametricProportionalHazard(Weibull()),
         ParametricProportionalHazard(Weibull()),
-        nb_coef=1,
     )
     m.fit(time, covar, event=event)
     return m, covar
@@ -370,9 +369,6 @@ class TestMixtureWeightsRegression:
         out = model.predict(covar)
         assert np.all(out >= 0) and np.all(out <= 1)
 
-    def test_call_equals_predict(self, model, covar):
-        np.testing.assert_array_equal(model(covar), model.predict(covar))
-
     def test_params_length(self, model):
         # weight matrix (K × nb_coef) + bias (K,)
         assert len(model.get_params()) == self.K * (self.NB_COEF + 1)
@@ -417,43 +413,49 @@ class TestMixtureWeightsRegression:
 
 
 class TestWRMixtureInstantiation:
-    def test_creates_weights_model(self):
+    def test_weights_model_none_before_fit(self):
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=2,
         )
+        assert m.weights_model is None
+
+    def test_weights_model_created_after_fit(self, rc_data_wr):
+        time, covar, event = rc_data_wr
+        m = ParametricLifetimeMixtureWithWeightsRegression(
+            ParametricProportionalHazard(Weibull()),
+            ParametricProportionalHazard(Weibull()),
+        )
+        m.fit(time, covar, event=event)
         assert isinstance(m.weights_model, MixtureWeightsRegression)
 
     def test_nb_components(self):
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=1,
         )
         assert m.nb_components == 2
 
     def test_too_few_components_raises(self):
         with pytest.raises(ValueError, match="at least 2"):
             ParametricLifetimeMixtureWithWeightsRegression(
-                ParametricProportionalHazard(Weibull()), nb_coef=1
+                ParametricProportionalHazard(Weibull())
             )
 
     def test_mixed_families_raises(self):
         with pytest.raises(TypeError, match="same model family"):
             ParametricLifetimeMixtureWithWeightsRegression(
-                Weibull(), ParametricProportionalHazard(Weibull()), nb_coef=1
+                Weibull(), ParametricProportionalHazard(Weibull())
             )
 
-    def test_weights_model_params_in_get_params(self):
-        nb_coef = 2
-        K = 2
+    def test_weights_model_params_in_get_params(self, rc_data_wr):
+        time, covar, event = rc_data_wr
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=nb_coef,
         )
-        weights_params = len(m.weights_model.get_params())  # K*(nb_coef+1)
+        m.fit(time, covar, event=event)
+        weights_params = len(m.weights_model.get_params())
         component_params = sum(c.get_params().size for c in m.components)
         assert len(m.get_params()) == weights_params + component_params
 
@@ -462,7 +464,6 @@ class TestWRMixtureInstantiation:
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=1,
         )
         assert not hasattr(m, "mix_weights")
 
@@ -473,29 +474,15 @@ class TestWRMixtureInstantiation:
 
 
 class TestWRMixtureGetWeights:
-    def test_get_weights_shape(self):
-        nb_coef = 2
-        n = 10
-        m = ParametricLifetimeMixtureWithWeightsRegression(
-            ParametricProportionalHazard(Weibull()),
-            ParametricProportionalHazard(Weibull()),
-            nb_coef=nb_coef,
-        )
-        covar = np.random.default_rng(0).standard_normal((n, nb_coef))
+    def test_get_weights_shape(self, fitted_mixture_wr):
+        m, covar = fitted_mixture_wr
         w = m._get_weights(covar)
-        assert w.shape == (n, m.nb_components)
+        assert w.shape == (len(covar), m.nb_components)
 
-    def test_get_weights_sums_to_one(self):
-        nb_coef = 1
-        n = 20
-        m = ParametricLifetimeMixtureWithWeightsRegression(
-            ParametricProportionalHazard(Weibull()),
-            ParametricProportionalHazard(Weibull()),
-            nb_coef=nb_coef,
-        )
-        covar = np.random.default_rng(0).standard_normal((n, nb_coef))
+    def test_get_weights_sums_to_one(self, fitted_mixture_wr):
+        m, covar = fitted_mixture_wr
         w = m._get_weights(covar)
-        np.testing.assert_allclose(w.sum(axis=1), np.ones(n), atol=1e-6)
+        np.testing.assert_allclose(w.sum(axis=1), np.ones(len(covar)), atol=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -567,7 +554,6 @@ class TestWRMixtureRvs:
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=covar.shape[1],
         )
         m.fit(time, covar, event=event)
         samples = m.rvs(n, covar, seed=0)
@@ -578,7 +564,6 @@ class TestWRMixtureRvs:
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=covar.shape[1],
         )
         m.fit(time, covar, event=event)
         m_assets, n_samples = 5, 20
@@ -591,7 +576,6 @@ class TestWRMixtureRvs:
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=covar.shape[1],
         )
         m.fit(time, covar, event=event)
         samples = m.rvs(len(time), covar, seed=0)
@@ -609,7 +593,6 @@ class TestWRMixtureFit:
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=covar.shape[1],
         )
         m.fit(time, covar, event=event)
         assert m.fitting_results is not None
@@ -620,7 +603,6 @@ class TestWRMixtureFit:
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=covar.shape[1],
         )
         m.fit(time, covar, event=event)
         assert len(m.fitting_results.optimal_params) == len(m.get_params())
@@ -630,7 +612,6 @@ class TestWRMixtureFit:
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=covar.shape[1],
         )
         m.fit(time, covar, event=event)
         assert np.all(np.isfinite(m.get_params()))
@@ -640,7 +621,6 @@ class TestWRMixtureFit:
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=covar.shape[1],
         )
         m.fit(time, covar, event=event)
         assert np.isfinite(m.fitting_results.neg_log_likelihood)
@@ -650,7 +630,6 @@ class TestWRMixtureFit:
         m = ParametricLifetimeMixtureWithWeightsRegression(
             ParametricProportionalHazard(Weibull()),
             ParametricProportionalHazard(Weibull()),
-            nb_coef=covar.shape[1],
         )
         m.fit(time, covar, event=event)
         assert np.isfinite(m.fitting_results.aic)
