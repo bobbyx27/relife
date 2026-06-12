@@ -35,30 +35,6 @@ ST: TypeAlias = int | float
 NumpyST: TypeAlias = np.floating | np.uint
 
 
-def _sample_component_indices(
-    rng: np.random.Generator,
-    n_total: int,
-    nb_components: int,
-    p: NDArray[np.float64],
-) -> NDArray[np.intp]:
-    """Draw component indices supporting scalar ``(K,)`` or per-sample ``(n, K)`` weights.
-
-    Parameters
-    ----------
-    rng : np.random.Generator
-    n_total : int
-        Total number of samples.
-    nb_components : int
-        Number of mixture components ``K``.
-    p : ndarray of shape ``(K,)`` or ``(n_total, K)``
-        Mixing weights.  When 1-D, the same distribution is used for all
-        samples.  When 2-D, row ``i`` is used for sample ``i``.
-    """
-    if p.ndim == 1:
-        return rng.choice(nb_components, size=n_total, p=p)
-    return np.array([rng.choice(nb_components, p=p[i] / p[i].sum()) for i in range(n_total)])
-
-
 class MixtureWeightsRegression(ParametricModel):
     """Softmax regression model for mixture component weights.
 
@@ -279,6 +255,18 @@ class _FittableParametricLifetimeModelMixture(
         """
         return w[k] if w.ndim == 1 else w[:, k : k + 1]
 
+    @staticmethod
+    def _sample_component_indices(
+        rng: np.random.Generator,
+        n_total: int,
+        nb_components: int,
+        p: NDArray[np.float64],
+    ) -> NDArray[np.intp]:
+        """Draw component indices supporting ``(K,)`` or per-sample ``(n, K)`` weights."""
+        if p.ndim == 1:
+            return rng.choice(nb_components, size=n_total, p=p)
+        return np.array([rng.choice(nb_components, p=p[i] / p[i].sum()) for i in range(n_total)])
+
     # ------------------------------------------------------------------
     # Core survival functions
     # ------------------------------------------------------------------
@@ -379,7 +367,7 @@ class _FittableParametricLifetimeModelMixture(
             np.asarray(a).ndim > 0 and np.asarray(a).shape[0] == n_total for a in args
         )
 
-        component_indices = _sample_component_indices(
+        component_indices = self._sample_component_indices(
             rng,
             n_total,
             self.nb_components,
