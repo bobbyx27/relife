@@ -405,7 +405,7 @@ class TestMixtureWeightsRegression:
         targets = torch.tensor(q.astype(np.float32))
         with torch.no_grad():
             loss_before = loss_fn(model.torch_module(X), targets).item()
-        model.fit(covar, q, max_iter=200)
+        model.fit(covar, q, max_iter=100)
         with torch.no_grad():
             loss_after = loss_fn(model.torch_module(X), targets).item()
         assert loss_after < loss_before

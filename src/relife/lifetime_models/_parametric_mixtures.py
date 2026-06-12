@@ -118,7 +118,7 @@ class MixtureWeightsRegression(ParametricModel):
         q: NDArray[np.float64],
         *,
         max_iter: int = 1000,
-        lr: float = 0.01,
+        lr: float = 1e-3,
     ) -> Self:
         """Fit via full-batch gradient descent on cross-entropy loss.
 
@@ -130,11 +130,11 @@ class MixtureWeightsRegression(ParametricModel):
         max_iter : int
             Number of gradient steps.
         lr : float
-            Learning rate for SGD.
+            Learning rate for Adam.
         """
         X = torch.tensor(np.asarray(covar, dtype=np.float32))
         targets = torch.tensor(np.asarray(q, dtype=np.float32))
-        optimizer = torch.optim.SGD(self.torch_module.parameters(), lr=lr)
+        optimizer = torch.optim.Adam(self.torch_module.parameters(), lr=lr)
         loss_fn = nn.CrossEntropyLoss()
         for _ in range(max_iter):
             optimizer.zero_grad()
