@@ -66,7 +66,6 @@ from ._parametric_mixtures import (
     ParametricLifetimeMixtureWithWeightsRegression,
 )
 
-Mixture = ParametricLifetimeMixture  # backward-compat alias
 from ._distributions import (
     EquilibriumDistribution,
     Exponential,
@@ -90,7 +89,9 @@ from ._semi_parametric_regressions import (
 
 __all__ = [
     "LifetimeLikelihood",
-    "Mixture",
+    "MixtureWeightsRegression",
+    "ParametricLifetimeMixture",
+    "ParametricLifetimeMixtureWithWeightsRegression",
     "Exponential",
     "Weibull",
     "Gompertz",

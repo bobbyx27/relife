@@ -57,7 +57,7 @@ def _sample_component_indices(
     """
     if p.ndim == 1:
         return rng.choice(nb_components, size=n_total, p=p)
-    return np.array([rng.choice(nb_components, p=p[i]) for i in range(n_total)])
+    return np.array([rng.choice(nb_components, p=p[i] / p[i].sum()) for i in range(n_total)])
 
 
 class MixtureWeightsRegression(ParametricModel):
