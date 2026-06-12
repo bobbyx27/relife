@@ -5,12 +5,12 @@ import pytest
 
 from relife.lifetime_models import (
     Gamma,
-    MixtureWeightsRegression,
     ParametricLifetimeMixture,
     ParametricLifetimeMixtureWithWeightsRegression,
     ParametricProportionalHazard,
     Weibull,
 )
+from relife.lifetime_models._parametric_mixtures import MixtureWeightsRegression
 
 
 # ---------------------------------------------------------------------------

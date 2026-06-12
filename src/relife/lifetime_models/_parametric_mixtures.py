@@ -24,7 +24,6 @@ from ._parametric_regressions import (
 )
 
 __all__ = [
-    "MixtureWeightsRegression",
     "ParametricLifetimeMixture",
     "ParametricLifetimeMixtureWithWeightsRegression",
 ]

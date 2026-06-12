@@ -61,7 +61,6 @@ Likelihoods
 from ._base import LifetimeLikelihood
 from ._conditional_models import AgeReplacementModel, LeftTruncatedModel
 from ._parametric_mixtures import (
-    MixtureWeightsRegression,
     ParametricLifetimeMixture,
     ParametricLifetimeMixtureWithWeightsRegression,
 )
@@ -89,7 +88,6 @@ from ._semi_parametric_regressions import (
 
 __all__ = [
     "LifetimeLikelihood",
-    "MixtureWeightsRegression",
     "ParametricLifetimeMixture",
     "ParametricLifetimeMixtureWithWeightsRegression",
     "Exponential",
