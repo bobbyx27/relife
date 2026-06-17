@@ -768,7 +768,7 @@ class ParametricLifetimeMixtureWithWeightsRegression(
     # ------------------------------------------------------------------
 
     @override
-    def fit(self, time: Any, *args: Any, **kwargs: Any) -> Self:
+    def fit(self, time: Array1D[np.float64], *args: Any, **kwargs: Any) -> Self:
         if args:
             covar = np.asarray(args[0])
             nb_coef = covar.shape[1] if covar.ndim == 2 else 1
